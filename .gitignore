@@ -1,0 +1,9 @@
+.claude/worktrees/
+__pycache__/
+.venv/
+*.db
+*.db-journal
+blobs/
+.mypy_cache/
+.hypothesis/
+.pytest_cache/
