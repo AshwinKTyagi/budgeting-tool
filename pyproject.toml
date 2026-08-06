@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "budgeting-tool"
+version = "0.0.0"
+description = "Single-user personal budgeting tool. Append-only event ledger, pure projection."
+requires-python = ">=3.12"
+
+# PEP 695 syntax is used for the `Minor` / `Bps` aliases (CONTRACTS.md §1) and for the
+# generic `resolve_version[T: DefinitionBase]` (§8.5), which is why 3.12 is the floor.
+
+dependencies = [
+    "pydantic>=2.9",      # strict=True is what rejects a float at the boundary
+    "sqlalchemy>=2.0",    # ingestion/append.py signs against Session
+    "alembic>=1.13",      # migrations; module/persistence owns alembic/**
+    "fastapi>=0.115",
+    "python-multipart>=0.0.9",  # POST /receipts is multipart/form-data
+    "uvicorn[standard]>=0.30",
+]
+
+# PLAN.md §13.3: this file is INTEGRATOR-ONLY. Module agents declare needed
+# dependencies in their PR description and the integrator adds them in the phase's
+# integration commit. Concurrent dependency edits are the most common avoidable
+# merge conflict, which is the entire reason for the restriction.
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.11",
+    "pytest>=8.0",
+    "hypothesis>=6.100",
+]
+
+[tool.setuptools]
+packages = ["core", "domain", "persistence", "ingestion", "api"]
+
+# --------------------------------------------------------------------------- mypy
+# CLAUDE.md §2.3: mypy --strict across the whole tree. No implicit Any, no untyped
+# defs. `strict = true` here is equivalent to the flag; CI passes --strict as well so
+# the gate holds even if this section is edited.
+
+[tool.mypy]
+strict = true
+plugins = ["pydantic.mypy"]
+files = ["core", "domain", "persistence", "ingestion", "api", "tools"]
+warn_unreachable = true
+warn_no_return = true
+
+[tool.pydantic-mypy]
+init_typed = true
+init_forbid_extra = true
+warn_required_dynamic_aliases = true
+
+# ------------------------------------------------------------------------- pytest
+# CLAUDE.md §2.3 / §4.6: there is no tolerance parameter anywhere in this codebase.
+# assertAlmostEqual and pytest.approx are forbidden — integer arithmetic is exact, so a
+# test needing slack is testing broken code.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"

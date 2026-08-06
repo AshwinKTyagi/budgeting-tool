@@ -1,0 +1,73 @@
+name: CI
+
+# The three gates every module branch must pass before it merges (PLAN.md §13.4):
+#   1. python tools/check_domain_purity.py   -- exit 0
+#   2. mypy --strict .                       -- clean
+#   3. its own tests pass
+#
+# Established in the Phase 0.5 commit and owned by Phase 0.5 / the integrator
+# (PLAN.md §13.3). A module agent that needs the purity gate changed is almost
+# certainly trying to make its own violation pass.
+
+on:
+  push:
+    branches: ["main", "module/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.12 is the declared floor (PEP 695 syntax). 3.14 is the development
+        # environment. Both are checked so neither can drift.
+        python-version: ["3.12", "3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # Gate 1 — the purity gate. Resolves core/ and domain/ relative to the current
+      # directory, so running it inside a worktree checks that worktree's files
+      # (PLAN.md §13.4). No suppression mechanism exists: if it fires, fix the code.
+      - name: Purity gate (core/ and domain/)
+        run: python tools/check_domain_purity.py
+
+      # Gate 2 — types. Also the mechanism that enforces Pydantic strict mode is
+      # actually declared on every model.
+      - name: mypy --strict
+        run: mypy --strict .
+
+      # Gate 3 — tests.
+      #
+      # Exit code 5 is pytest's "no tests were collected". It is tolerated ONLY for the
+      # Phase 0.5 stub commit, which deliberately ships no tests: tests/unit/** and
+      # tests/properties/** belong to the module branches (PLAN.md §13.2), so Phase 0.5
+      # writing them would be writing another branch's files. Once Phase 1 lands, real
+      # tests are collected and this branch of the condition stops being reachable.
+      - name: pytest
+        run: |
+          set +e
+          pytest
+          code=$?
+          set -e
+          if [ "$code" -eq 5 ]; then
+            echo "::warning::No tests collected (expected only for the Phase 0.5 stub commit)."
+            exit 0
+          fi
+          exit "$code"
