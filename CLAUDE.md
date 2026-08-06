@@ -80,6 +80,11 @@ lines, where the alias does not.
 4. **Hypothesis property tests** (§5) that assert exactness rather than closeness. There
    is no tolerance parameter anywhere in this codebase. `assertAlmostEqual` and
    `pytest.approx` are forbidden — if a test needs a tolerance, the arithmetic is wrong.
+5. **`UtcInstant`** on every `_at` field (`CONTRACTS.md` §1), which is what enforces
+   §4.5. Strict mode alone does *not* cover this: it checks that a value is a
+   `datetime`, not that it carries a zone, and the purity gate cannot see the problem
+   because a naive datetime is not a clock read. A bare `dt.datetime` annotation
+   silently accepts `datetime(2026, 3, 31, 12)`.
 
 ---
 
@@ -204,6 +209,21 @@ returns different results on two calls with identical inputs.
 Every `datetime` is timezone-aware and UTC. Business dates are `datetime.date` with no
 time component at all — that is the type, not a convention. If you find yourself
 converting a business date to a datetime, you are about to introduce a boundary bug.
+
+**Annotate every `_at` field as `UtcInstant`, never as a bare `dt.datetime`.** The
+former enforces this rule; the latter only documents it. `UtcInstant` rejects a naive
+value outright — there is no correct zone to assume and guessing is how boundary bugs
+get in — and normalizes any aware value to UTC, which preserves the instant exactly and
+makes "every stored instant is UTC" true of the data rather than merely asked for.
+
+```python
+recorded_at: dt.datetime    # NO — accepts datetime(2026, 3, 31, 12), naive
+recorded_at: UtcInstant     # yes
+```
+
+`UtcInstant` is transparent to `mypy`, which sees a plain `dt.datetime`, so this costs
+nothing at the call site. Ordering is unaffected: aware datetimes compare by instant
+regardless of offset, so `(date, recorded_at, event_id)` stays total and stable.
 
 ### 4.6 Tolerance in assertions
 

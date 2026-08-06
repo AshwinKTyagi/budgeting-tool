@@ -33,6 +33,7 @@ from core.types import (
     Minor,
     ObligationSource,
     PeriodId,
+    UtcInstant,
 )
 from domain.events import ObligationRaised
 
@@ -44,7 +45,7 @@ class DefinitionBase(BaseModel):
     entity_id: str  # stable logical identity across versions
     effective_from: dt.date  # inclusive
     effective_to: dt.date | None  # exclusive; None == open-ended
-    recorded_at: dt.datetime
+    recorded_at: UtcInstant
 
 
 class RecurringIncome(DefinitionBase):

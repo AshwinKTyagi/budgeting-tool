@@ -15,19 +15,38 @@ representation and §4 lists the forbidden patterns.
   body.
 - **Money** is `Minor` (`int`, minor units, signed). Every money field ends `_minor`.
 - **Rates** are `Bps` (`int`, 1 bps = 0.01%). Every rate field ends `_bps`.
-- **Business dates** are `dt.date` — no time, no zone. **Instants** are timezone-aware
-  UTC `dt.datetime` and end `_at`.
+- **Business dates** are `dt.date` — no time, no zone. **Instants** are `UtcInstant` and
+  end `_at`. `UtcInstant` is a `dt.datetime` that *enforces* what `CLAUDE.md` §4.5
+  requires: a naive value is rejected, and any aware value is normalized to UTC. Never
+  annotate an `_at` field as a bare `dt.datetime` — that accepts a naive datetime.
 - Every model is `strict=True, frozen=True, extra="forbid"`.
 - `Minor` fields accept negative values unless the docstring says otherwise. Sign is
   meaningful: negative allocation is a shortfall, negative balance is a liability.
 
 ```python
-# core/types.py  -- all frozen declarations, no logic. See PLAN.md §13.3.
+# core/types.py  -- all frozen declarations. See PLAN.md §13.3.
 type Minor = int   # signed minor units (cents)
 type Bps   = int   # basis points; 10_000 == 100%
 
 MONEY_MODEL_CONFIG = ConfigDict(strict=True, frozen=True, extra="forbid")
+
+
+def _require_utc(value: dt.datetime) -> dt.datetime:
+    """Reject a naive datetime; normalize any aware one to UTC (CLAUDE.md §4.5)."""
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        raise ValueError("naive datetime: every instant must be timezone-aware and UTC")
+    return value.astimezone(dt.timezone.utc)
+
+
+type UtcInstant = Annotated[dt.datetime, AfterValidator(_require_utc)]
 ```
+
+`UtcInstant` is transparent to the type checker — `mypy` sees a plain `dt.datetime`, so
+it is passed to anything expecting one and no consumer changes. The validator is the
+only logic permitted in this file besides `AppError.__init__`, and it is here for the
+same reason: it is what makes a declared type enforce its own contract, and the three
+modules that need it (`domain/events.py`, `domain/definitions.py`, `api/dtos.py`) sit on
+three different branches, so it cannot live in any one of them.
 
 **Types live in `core/types.py`; behavior lives elsewhere.** The aliases, the shared
 model config, the enums in §2, and the id aliases are all declarations that nearly every
@@ -101,7 +120,7 @@ class EventBase(BaseModel):
 
     event_id: UUID
     date: dt.date              # business date; decides period membership
-    recorded_at: dt.datetime   # tz-aware UTC; audit + tie-break only, never period membership
+    recorded_at: UtcInstant    # tz-aware UTC (enforced); audit + tie-break only, never period membership
     dedupe_key: str            # natural key; UNIQUE in persistence
     external_ref: ExternalRef | None = None
     note: str | None = None
@@ -253,7 +272,7 @@ class DefinitionBase(BaseModel):
     entity_id: str                 # stable logical identity across versions
     effective_from: dt.date        # inclusive
     effective_to: dt.date | None   # exclusive; None == open-ended
-    recorded_at: dt.datetime
+    recorded_at: UtcInstant
 
 
 class RecurringIncome(DefinitionBase):
@@ -527,7 +546,7 @@ class LedgerRow(BaseModel):
     event_id: UUID
     event_type: str
     date: dt.date
-    recorded_at: dt.datetime
+    recorded_at: UtcInstant
     period_id: PeriodId
     amount_minor: Minor | None
     account_id: str | None
@@ -1163,6 +1182,7 @@ def to_error_response(exc: AppError) -> tuple[int, ErrorResponse]:
 Before Phase 0.5, confirm:
 
 - [ ] Every event type in §3.2 appears in the `Event` union.
+- [ ] Every `_at` field is annotated `UtcInstant`, never a bare `dt.datetime` (§1).
 - [ ] Every `ErrorCode` has a row in the §7.1 HTTP mapping.
 - [ ] Every module in `PLAN.md` §10 has at least one stub here.
 - [ ] Every stub docstring states preconditions **and** postconditions.

@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from core.types import MONEY_MODEL_CONFIG, Minor, PeriodId
+from core.types import MONEY_MODEL_CONFIG, Minor, PeriodId, UtcInstant
 from domain.events import Event
 
 
@@ -77,7 +77,7 @@ class LedgerRow(BaseModel):
     event_id: UUID
     event_type: str
     date: dt.date
-    recorded_at: dt.datetime
+    recorded_at: UtcInstant
     period_id: PeriodId
     amount_minor: Minor | None
     account_id: str | None

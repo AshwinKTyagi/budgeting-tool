@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from core.types import MONEY_MODEL_CONFIG, CycleId, Minor
+from core.types import MONEY_MODEL_CONFIG, CycleId, Minor, UtcInstant
 
 
 class ExternalRef(BaseModel):
@@ -40,7 +40,7 @@ class EventBase(BaseModel):
 
     event_id: UUID
     date: dt.date  # business date; decides period membership
-    recorded_at: dt.datetime  # tz-aware UTC; audit + tie-break only, never period membership
+    recorded_at: UtcInstant  # tz-aware UTC (enforced); audit + tie-break only, never period membership
     dedupe_key: str  # natural key; UNIQUE in persistence
     external_ref: ExternalRef | None = None
     note: str | None = None

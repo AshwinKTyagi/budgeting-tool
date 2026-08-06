@@ -6,7 +6,7 @@ amendment (PLAN.md §13.5), not an edit.
 
 Contents, and why each is here rather than somewhere else:
 
-* CONTRACTS.md §1  -- `Minor`, `Bps`, `MONEY_MODEL_CONFIG`
+* CONTRACTS.md §1  -- `Minor`, `Bps`, `MONEY_MODEL_CONFIG`, `UtcInstant`
 * CONTRACTS.md §2  -- the shared enums and the `PeriodId` / `CycleId` id aliases
 * CONTRACTS.md §7.1/§7.2 -- `ErrorCode`, `WarningCode`, `AppError`, `ErrorResponse`.
   These live here because `core/money.py` raises `AppError(POLICY_BPS_NOT_10000)` and
@@ -20,14 +20,22 @@ Contents, and why each is here rather than somewhere else:
 Every model in the project carries `MONEY_MODEL_CONFIG`: strict, frozen, extra
 forbidden. Strict mode is what rejects `1.0` where a `Minor` is declared instead of
 silently coercing it (CLAUDE.md §2.3).
+
+"Declarations only, no logic" is meant as: nothing here computes a domain answer. Two
+callables are unavoidable and both exist solely so a declared type can enforce its own
+contract -- `AppError.__init__`, without which the documented `AppError(SOME_CODE)`
+raise sites cannot be written, and `_require_utc`, which is what actually makes
+`UtcInstant` reject a naive datetime. Neither takes a decision away from any module.
+Nothing else belongs here.
 """
 
 from __future__ import annotations
 
+import datetime as dt
 from enum import StrEnum
-from typing import Protocol
+from typing import Annotated, Protocol
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AfterValidator, BaseModel, ConfigDict
 
 # --------------------------------------------------------------------------- §1
 # Money and rates. PEP 695 aliases, deliberately not NewType: they document intent
@@ -39,6 +47,42 @@ type Minor = int  # signed minor units (cents)
 type Bps = int  # basis points; 10_000 == 100%
 
 MONEY_MODEL_CONFIG = ConfigDict(strict=True, frozen=True, extra="forbid")
+
+
+# ------------------------------------------------------------------------- §4.5
+# Instants. `UtcInstant` is the type for every `*_at` field in the codebase.
+#
+# CLAUDE.md §4.5 requires every datetime to be timezone-aware AND UTC, but a bare
+# `dt.datetime` annotation enforces neither: Pydantic strict mode checks that the value
+# IS a datetime, not that it carries a zone, and the purity gate cannot see the problem
+# because a naive datetime is not a clock read. §4.5 was the one rule in CLAUDE.md §4
+# with no mechanism behind it. This is the mechanism.
+#
+# Non-UTC input is normalized rather than rejected: `astimezone` preserves the instant
+# exactly, so nothing is lost, and it makes "every stored instant is UTC" true of the
+# data rather than merely asked for. Naive input is rejected outright — there is no
+# correct zone to assume, and guessing is how boundary bugs get in.
+#
+# Ordering is unaffected either way. Aware datetimes compare by instant regardless of
+# offset, so `(date, recorded_at, event_id)` stays total and stable (CONTRACTS.md §3.1).
+
+
+def _require_utc(value: dt.datetime) -> dt.datetime:
+    """Reject a naive datetime; normalize any aware one to UTC.
+
+    Raises:
+        ValueError, which Pydantic surfaces as a ValidationError and `api/` maps to
+        VALIDATION_FAILED / HTTP 422 (CONTRACTS.md §7.1).
+    """
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        raise ValueError(
+            "naive datetime: every instant must be timezone-aware and UTC "
+            "(CLAUDE.md §4.5). Business dates are dt.date and carry no time at all."
+        )
+    return value.astimezone(dt.timezone.utc)
+
+
+type UtcInstant = Annotated[dt.datetime, AfterValidator(_require_utc)]
 
 
 # --------------------------------------------------------------------------- §2
