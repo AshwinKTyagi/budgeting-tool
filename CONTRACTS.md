@@ -22,12 +22,18 @@ representation and §4 lists the forbidden patterns.
   meaningful: negative allocation is a shortfall, negative balance is a liability.
 
 ```python
-# core/money.py
+# core/types.py  -- all frozen declarations, no logic. See PLAN.md §13.3.
 type Minor = int   # signed minor units (cents)
 type Bps   = int   # basis points; 10_000 == 100%
 
 MONEY_MODEL_CONFIG = ConfigDict(strict=True, frozen=True, extra="forbid")
 ```
+
+**Types live in `core/types.py`; behavior lives elsewhere.** The aliases, the shared
+model config, the enums in §2, and the id aliases are all declarations that nearly every
+module imports. They land in Phase 0.5 and are frozen thereafter. `core/money.py`
+contains only functions (`split_bps`, `allocate_period`), so no Phase-1 agent owns a type
+that other agents depend on.
 
 ---
 
@@ -799,24 +805,48 @@ def clamp_day_to_month(year: int, month: int, day: int) -> dt.date:
 
 ```python
 def interest_for_cycle(
-    balance_minor: Minor,
+    outstanding_minor: Minor,
     apr_bps: Bps,
     cycle_days: int,
 ) -> Minor:
     """Integer interest, floor division, actual/365, no intra-cycle compounding.
 
-        balance_minor * apr_bps * cycle_days // (10_000 * 365)
+        outstanding_minor * apr_bps * cycle_days // (10_000 * 365)
 
     Preconditions:
+        outstanding_minor >= 0   -- an ABSOLUTE amount, never a signed balance
         apr_bps >= 0
         cycle_days > 0
 
+        What the caller passes, by account kind:
+          liability (CREDIT_CARD, LOAN) -> AccountBalance.outstanding_minor
+          asset (CHECKING, SAVINGS)     -> AccountBalance.balance_minor, which is
+                                           non-negative in the normal case
+        An overdrawn asset account (balance_minor < 0) accrues no interest; the
+        caller skips it or passes 0. It must NOT pass the negative balance.
+
+        Passing a signed `balance_minor` for a liability is a bug: it is NEGATIVE
+        for liabilities (§5.2), and raw floor division on a negative operand
+        rounds toward -inf, producing a larger-magnitude charge than the balance
+        warrants.
+
+        This does NOT use the abs-then-reapply-sign discipline of split_bps, and
+        the difference is deliberate. split_bps must accept signed input because
+        negative allocatable income is a real state (PLAN.md §6.1). A negative
+        card balance is a credit, which earns no interest rather than negative
+        interest — so the correct treatment is a precondition, not a sign flip.
+
     Postconditions:
         result is int; no float anywhere in the computation
+        result >= 0
         multiplication happens before division (CLAUDE.md §2.1)
-        balance_minor <= 0 or apr_bps == 0  =>  result == 0
+        outstanding_minor == 0 or apr_bps == 0  =>  result == 0
         worked example: (120_000, 2199, 31) -> 2241        (PLAN.md §7.2)
                         (500_000,  450, 30) -> 1849
+
+    Raises:
+        AppError(VALIDATION_FAILED) if outstanding_minor < 0. Never silently
+        clamps -- a negative here means the caller used the wrong field.
     """
     raise NotImplementedError
 

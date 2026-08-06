@@ -301,13 +301,31 @@ is computed, whether it can be overridden, or the card's outstanding balance.
 Integer-only, floor division, actual/365 day count, no compounding within a cycle:
 
 ```
-interest_minor = balance_minor * apr_bps * cycle_days // (10000 * 365)
+interest_minor = outstanding_minor * apr_bps * cycle_days // (10000 * 365)
 ```
 
-- **Credit cards** — `balance_minor` is the **statement-close balance**. Interest is
+- **Credit cards** — `outstanding_minor` is the **statement-close balance**. Interest is
   zero when the previous statement was paid in full by its due date (grace period).
-- **Asset accounts** (checking, savings) — `balance_minor` is the balance at period
+- **Asset accounts** (checking, savings) — `outstanding_minor` is the balance at period
   close; interest is credited to that same account and is **not allocatable income**.
+
+**`outstanding_minor` is non-negative by precondition**, and that is deliberately
+*unlike* `split_bps`, which works on `abs(total)` and reapplies the sign. The asymmetry
+is not an oversight:
+
+- `split_bps` must handle genuinely signed input, because negative allocatable income is
+  a real state with real meaning — a shortfall split across two buckets (§6.1). Floor
+  division would bias one bucket, so the sign is stripped and reapplied.
+- Interest has no such case. A card balance below zero is a *credit*, and a credit does
+  not earn negative interest — it earns none. So the answer for a non-positive balance is
+  zero, not a sign-mirrored charge.
+
+What the caller passes depends on the account kind: `outstanding_minor` for a liability
+(already an absolute value), `balance_minor` for an asset (non-negative in the normal
+case). An overdrawn checking account accrues no interest — the caller skips it rather
+than passing a negative number. What a caller must **never** do is hand the signed
+`balance_minor` of a *liability* straight in; it is negative by convention (§5.2 of
+`CONTRACTS.md`), and that is the mistake this naming exists to prevent.
 
 Rejected alternative: average daily balance. More accurate for anyone who pays down
 mid-cycle, and it is what most real cards use — but it requires materializing a daily
@@ -472,10 +490,15 @@ Each row is also a **branch and a worktree**, and owns a fixed set of paths that
 may write. See §13.2 for the ownership table — that rule is what makes merges
 conflict-free by construction, and it is not optional.
 
+The one exception is `core/types.py`: it is declarations only, it has **no agent and no
+branch**, and it lands in the Phase 0.5 commit on `main` and is frozen thereafter. It
+appears here because everything depends on it, not because anyone builds it.
+
 | Module | Scope | Depends on |
 |---|---|---|
-| `core/money.py` | `Minor`/`Bps` types, `split_bps`, rounding helpers | — |
-| `core/periods.py` | `PeriodResolver` protocol, `CalendarMonthResolver`, period algebra | — |
+| `core/types.py` *(no agent — Phase 0.5)* | `Minor`/`Bps` aliases, `MONEY_MODEL_CONFIG`, enums, `PeriodId`/`CycleId` | — |
+| `core/money.py` | `split_bps`, `allocate_period`, rounding helpers | types |
+| `core/periods.py` | `PeriodResolver` protocol, `CalendarMonthResolver`, period algebra | types |
 | `core/interest.py` | Pure integer interest engine, day count, cycle math | money, periods |
 | `domain/events.py` | Event models, discriminated union, dedupe key computation | money, periods |
 | `domain/definitions.py` | `RecurringIncome`, `FixedCost`, `AllocationPolicy`; effective-dating, non-overlap validation | money, periods |
@@ -583,7 +606,7 @@ raise it (`CLAUDE.md` §6).
 | `tests/properties/strategies.py` | `module/properties` | `CLAUDE.md` §5.2 requires shared strategies live here and be imported. Phase 1–3 agents must not create this file; they write module tests under `tests/unit/`. |
 | `alembic/versions/*` | `module/persistence` | Two agents generating migrations produces two heads, which Alembic cannot resolve automatically. |
 | `.gitignore`, CI config | Phase 0.5 | Established once, before any worktree exists. |
-| `core/types.py` | Phase 0.5, then **nobody** | Enums and id aliases from `CONTRACTS.md` §2. Imported by nearly every module and owned by no branch, so it is frozen once Phase 0.5 lands. Needing to change it is a contract amendment (§13.5). |
+| `core/types.py` | Phase 0.5, then **nobody** | `Minor`/`Bps`, `MONEY_MODEL_CONFIG`, the enums and id aliases from `CONTRACTS.md` §1–2. Declarations only — no logic ever lands here. Imported by nearly every module and owned by no branch, so it is frozen once Phase 0.5 lands. Needing to change it is a contract amendment (§13.5). |
 | `tools/**` | Phase 0.5 / integrator | The purity gate is build infrastructure. A module agent that needs it changed is almost certainly trying to make its own violation pass. |
 
 ### 13.4 Merge protocol

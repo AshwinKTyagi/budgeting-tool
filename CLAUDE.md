@@ -41,7 +41,7 @@ for the same underlying purchase, stop — that is the bug this rule exists to p
 ### 2.2 Types
 
 ```python
-# core/money.py
+# core/types.py   -- declarations only; core/money.py holds the functions
 type Minor = int   # signed minor units (cents)
 type Bps   = int   # basis points; 10_000 == 100%
 ```
@@ -89,7 +89,9 @@ lines, where the alias does not.
 
 ```
 core/          pure primitives, zero domain knowledge, zero dependencies on domain/
-  money.py       Minor, Bps, split_bps, rounding
+  types.py       Minor, Bps, MONEY_MODEL_CONFIG, enums, PeriodId/CycleId
+                   declarations only, no logic; frozen after Phase 0.5
+  money.py       split_bps, allocate_period, rounding
   periods.py     PeriodResolver protocol, CalendarMonthResolver, period algebra
   interest.py    integer interest engine, day count, cycle math
 
