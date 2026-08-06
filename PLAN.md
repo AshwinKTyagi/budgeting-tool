@@ -468,6 +468,10 @@ purpose of the seam.
 Each row is one implementation agent's scope, independently implementable from
 `CONTRACTS.md`. Dependencies point strictly upward — the graph is acyclic.
 
+Each row is also a **branch and a worktree**, and owns a fixed set of paths that only it
+may write. See §13.2 for the ownership table — that rule is what makes merges
+conflict-free by construction, and it is not optional.
+
 | Module | Scope | Depends on |
 |---|---|---|
 | `core/money.py` | `Minor`/`Bps` types, `split_bps`, rounding helpers | — |
@@ -487,9 +491,11 @@ Each row is one implementation agent's scope, independently implementable from
 ## 11. Phasing
 
 - **Phase 0** *(sequential — this document, `CLAUDE.md`, `CONTRACTS.md`)*
-- **Phase 0.5** *(one agent, blocking)* — commit every stub signature from
-  `CONTRACTS.md` with `NotImplementedError` bodies so all imports resolve and
-  `mypy --strict` passes. **Everything after this is parallel.**
+- **Phase 0.5** *(one agent, on `main`, blocking)* — commit every stub signature from
+  `CONTRACTS.md` with `NotImplementedError` bodies, plus `.gitignore` and CI config.
+  **This must merge to `main` before any worktree is created**, because every module
+  branch needs the stubs present for imports to resolve and `mypy --strict` to pass.
+  **Everything after this is parallel.**
 - **Phase 1** *(5 agents)* — `money`, `periods`, `interest`, `events`, `definitions`
 - **Phase 2** *(2 agents)* — `accounts`, `persistence`
 - **Phase 3** *(2 agents)* — `projection`, `ingestion`
@@ -526,3 +532,78 @@ section.
 | Universal `EventVoided` | Typed adjustment events | One code path, one property, instead of one per adjustment type | 8.4 |
 | Recompute from genesis every read | Incremental/materialized balances | Nothing stored can go stale; volume makes it free | 3 |
 | Aggregation deferred, seam kept | Build it now; ignore it entirely | Cost is non-coding; the seam costs one optional field | 9 |
+| One worktree per module | Shared checkout; branches without worktrees | Concurrent agents in one directory see each other's uncommitted edits | 13 |
+
+---
+
+## 13. Build mechanics: branches and worktrees
+
+Parallel agents share a repository, not a working directory. Each module agent runs in
+its own git worktree on its own branch. A shared checkout would let one agent's
+uncommitted edits become visible to another mid-run, which destroys the
+"independently implementable" property the §10 module table asserts.
+
+### 13.1 Topology
+
+- `main` holds contracts and stubs. **No module agent commits to it.**
+- One worktree + branch per row of the §10 module table: `module/core-money`,
+  `module/domain-projection`, `module/persistence`, and so on.
+- Worktrees live under `.claude/worktrees/<name>/` and are gitignored.
+- **Base ref is the previous phase's integration commit on `main`**, never an
+  arbitrary HEAD. A Phase 2 worktree branches from the commit that closed Phase 1.
+
+### 13.2 Path ownership
+
+An agent writes **only** files under the paths it owns. This is what makes merges
+conflict-free by construction rather than by luck.
+
+| Branch | Owns |
+|---|---|
+| `module/core-money` | `core/money.py`, `tests/unit/core/test_money.py` |
+| `module/core-periods` | `core/periods.py`, `tests/unit/core/test_periods.py` |
+| `module/core-interest` | `core/interest.py`, `tests/unit/core/test_interest.py` |
+| `module/domain-events` | `domain/events.py`, `tests/unit/domain/test_events.py` |
+| `module/domain-definitions` | `domain/definitions.py`, `tests/unit/domain/test_definitions.py` |
+| `module/domain-accounts` | `domain/accounts.py`, `tests/unit/domain/test_accounts.py` |
+| `module/domain-projection` | `domain/projection.py`, `tests/unit/domain/test_projection.py` |
+| `module/persistence` | `persistence/**`, `alembic/**` |
+| `module/ingestion` | `ingestion/**`, `tests/unit/ingestion/**` |
+| `module/api` | `api/**`, `tests/unit/api/**` |
+| `module/properties` | `tests/properties/**`, `tests/examples/**` |
+
+Writing outside your owned paths has the same status as changing a contract: stop and
+raise it (`CLAUDE.md` §6).
+
+### 13.3 Files with a single owner or no owner
+
+| File | Owner | Note |
+|---|---|---|
+| `PLAN.md`, `CLAUDE.md`, `CONTRACTS.md` | **nobody** | Frozen at Phase 0. A worktree makes editing these feel safe and local. It is not. |
+| `pyproject.toml` | integrator only | Module agents declare needed dependencies in their PR description; the integrator adds them in the phase's integration commit. Concurrent dependency edits are the most common avoidable conflict. |
+| `tests/properties/strategies.py` | `module/properties` | `CLAUDE.md` §5.2 requires shared strategies live here and be imported. Phase 1–3 agents must not create this file; they write module tests under `tests/unit/`. |
+| `alembic/versions/*` | `module/persistence` | Two agents generating migrations produces two heads, which Alembic cannot resolve automatically. |
+| `.gitignore`, CI config | Phase 0.5 | Established once, before any worktree exists. |
+| `core/types.py` | Phase 0.5, then **nobody** | Enums and id aliases from `CONTRACTS.md` §2. Imported by nearly every module and owned by no branch, so it is frozen once Phase 0.5 lands. Needing to change it is a contract amendment (§13.5). |
+| `tools/**` | Phase 0.5 / integrator | The purity gate is build infrastructure. A module agent that needs it changed is almost certainly trying to make its own violation pass. |
+
+### 13.4 Merge protocol
+
+Before a module branch merges, in its own worktree:
+
+1. `python tools/check_domain_purity.py` — exit 0
+2. `mypy --strict .` — clean
+3. its own tests pass
+
+Merge order **within** a phase is arbitrary; there are no cross-dependencies by
+construction. Each phase closes with an integration commit on `main` that runs the
+full suite. Only then are the next phase's worktrees created.
+
+The purity gate resolves `core/` and `domain/` relative to the current directory, so
+running it inside a worktree checks that worktree's files — which is what you want.
+
+### 13.5 Contract amendments
+
+If `CONTRACTS.md` must change mid-build, it is a commit on `main`, and **every open
+worktree rebases onto it before continuing**. Do not let one agent amend a contract in
+its own worktree — that is the failure mode described in §11, and worktrees make it
+easier to do accidentally, not harder.
