@@ -40,10 +40,21 @@ packages = ["core", "domain", "persistence", "ingestion", "api"]
 # defs. `strict = true` here is equivalent to the flag; CI passes --strict as well so
 # the gate holds even if this section is edited.
 
+# `explicit_package_bases` + `mypy_path` derive each module's name from its path
+# relative to the repo root, so `tests/unit/persistence/conftest.py` is
+# `tests.unit.persistence.conftest` rather than a second top-level `conftest`. Without
+# it, the first phase to add a second `tests/unit/*/conftest.py` breaks `mypy --strict .`
+# with a duplicate-module error that prevents all further checking — and `conftest`
+# cannot be renamed around, unlike an ordinary test module. Excluding `tests/` would
+# also silence it, but CLAUDE.md §2.3 requires the whole tree be checked.
+
 [tool.mypy]
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["core", "domain", "persistence", "ingestion", "api", "tools"]
+explicit_package_bases = true
+namespace_packages = true
+mypy_path = "."
 warn_unreachable = true
 warn_no_return = true
 
