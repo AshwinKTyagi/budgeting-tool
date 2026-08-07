@@ -13,23 +13,45 @@ closed period's policy was pinned by a date that has already passed (PLAN.md §8
 `RecurringIncome` is deliberately asymmetric with `FixedCost` — an unpaid bill is still
 owed, so it reserves money; an unreceived paycheck cannot be spent, so it must not
 (PLAN.md §8.2).
+
+Implementation notes, all of them consequences of the contracts rather than choices:
+
+* Two invariants are enforced **on construction**, so an invalid version cannot exist
+  even transiently: `effective_to > effective_from` on every definition
+  (`EFFECTIVE_RANGE_INVALID`) and `savings_bps + discretionary_bps == 10_000` on
+  `AllocationPolicy` (`POLICY_BPS_NOT_10000`). Both raise `AppError`, not `ValueError`,
+  because CONTRACTS.md §7.1 gives each its own code and `api/` maps codes to HTTP.
+  Pydantic propagates a non-`ValueError` out of a validator unwrapped, so the code
+  survives to the boundary intact.
+* Non-overlap is *not* a construction-time invariant — it is a property of a **set** of
+  versions rather than of one version, so it lives in `validate_no_overlap`, which the
+  write path calls before appending a new version (CONTRACTS.md §4, "enforced at write
+  time").
+* Every function here is total and order-independent: results are sorted on a total key
+  before being returned, so a caller that shuffles its input gets an identical answer.
+  That is what keeps the projection's ingestion-order independence (CLAUDE.md §5.1
+  property 6) from depending on the order a repository happened to return rows in.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import itertools
 from collections.abc import Sequence
+from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
-from core.periods import PeriodResolver
+from core.periods import PeriodResolver, clamp_day_to_month
 from core.types import (
     MONEY_MODEL_CONFIG,
     AccountKind,
+    AppError,
     Bps,
     BudgetTiming,
     Cadence,
+    ErrorCode,
     Minor,
     ObligationSource,
     PeriodId,
@@ -46,6 +68,33 @@ class DefinitionBase(BaseModel):
     effective_from: dt.date  # inclusive
     effective_to: dt.date | None  # exclusive; None == open-ended
     recorded_at: UtcInstant
+
+    @model_validator(mode="after")
+    def _check_effective_range(self) -> Self:
+        """A version's range is half-open and non-empty: `[from, to)` with `to > from`.
+
+        `effective_to == effective_from` describes a version effective for no date at
+        all, which is never a valid thing to write; `effective_to < effective_from` is
+        inverted. Both are `EFFECTIVE_RANGE_INVALID` (CONTRACTS.md §7.1). Enforcing it
+        here rather than at the API boundary means `resolve_version` never has to
+        consider an empty range and no repository can persist one.
+        """
+        if self.effective_to is not None and self.effective_to <= self.effective_from:
+            raise AppError(
+                ErrorCode.EFFECTIVE_RANGE_INVALID,
+                (
+                    f"effective_to ({self.effective_to.isoformat()}) must be strictly "
+                    f"after effective_from ({self.effective_from.isoformat()}); the "
+                    f"range is half-open [from, to)"
+                ),
+                {
+                    "entity_id": self.entity_id,
+                    "version_id": str(self.version_id),
+                    "effective_from": self.effective_from.isoformat(),
+                    "effective_to": self.effective_to.isoformat(),
+                },
+            )
+        return self
 
 
 class RecurringIncome(DefinitionBase):
@@ -84,8 +133,33 @@ class AllocationPolicy(DefinitionBase):
     savings_bps: Bps
     discretionary_bps: Bps
     # INVARIANT: savings_bps + discretionary_bps == 10_000, validated on construction.
-    # The validator is module/domain-definitions' to write; it raises
-    # AppError(POLICY_BPS_NOT_10000) (CONTRACTS.md §7.1).
+
+    @model_validator(mode="after")
+    def _check_bps_total(self) -> Self:
+        """The two buckets must partition the period exactly.
+
+        `core/money.py::split_bps` states `sum(bps) == 10_000` as a precondition and
+        raises `POLICY_BPS_NOT_10000` when it is violated. Validating on construction
+        discharges that precondition by the type: a policy that reaches
+        `allocate_period` cannot break the top-level invariant (PLAN.md §5.3).
+        """
+        total_bps = self.savings_bps + self.discretionary_bps
+        if total_bps != 10_000:
+            raise AppError(
+                ErrorCode.POLICY_BPS_NOT_10000,
+                (
+                    f"savings_bps ({self.savings_bps}) + discretionary_bps "
+                    f"({self.discretionary_bps}) == {total_bps}, must be 10_000"
+                ),
+                {
+                    "entity_id": self.entity_id,
+                    "version_id": str(self.version_id),
+                    "savings_bps": self.savings_bps,
+                    "discretionary_bps": self.discretionary_bps,
+                    "total_bps": total_bps,
+                },
+            )
+        return self
 
 
 class Account(DefinitionBase):
@@ -112,6 +186,28 @@ class Definitions(BaseModel):
     accounts: tuple[Account, ...]
 
 
+def _is_effective_at(version: DefinitionBase, at: dt.date) -> bool:
+    """True iff `at` falls in the half-open range `[effective_from, effective_to)`.
+
+    `effective_to is None` is open-ended, i.e. `+inf`. The asymmetry of the two
+    comparisons is the whole point: a version ending on the day another begins hands
+    over cleanly, with no date belonging to both and none belonging to neither.
+    """
+    if at < version.effective_from:
+        return False
+    return version.effective_to is None or at < version.effective_to
+
+
+def _version_sort_key(version: DefinitionBase) -> tuple[dt.date, dt.datetime, str]:
+    """A total, stable ordering key over versions.
+
+    Mirrors the ledger's `(date, recorded_at, event_id)` (CONTRACTS.md §3.1): business
+    date first, instant to break ties, identity to make it total. `recorded_at` is a
+    UTC-normalized aware datetime, so it compares by instant.
+    """
+    return (version.effective_from, version.recorded_at, str(version.version_id))
+
+
 def resolve_version[T: DefinitionBase](
     versions: Sequence[T],
     entity_id: str,
@@ -126,8 +222,25 @@ def resolve_version[T: DefinitionBase](
         returns v where v.effective_from <= at < (v.effective_to or +inf)
         None when no version is effective
         at most one version can match — overlap is a write-time error
+
+    `versions` may hold versions of *any* entity — the whole `Definitions` bundle is the
+    expected argument — so entity filtering happens here rather than at the call site.
+    `None` is returned both for a date before any version begins and for a date inside a
+    gap between two versions; the two are indistinguishable to a caller and mean the
+    same thing, that nothing governs `at`.
+
+    Should the non-overlap precondition be violated, the latest-starting match wins, ties
+    broken by `(effective_from, recorded_at, version_id)`. That is not a licence to
+    overlap — `validate_no_overlap` is what prevents it — but it keeps the answer
+    independent of the order `versions` arrived in, so a bad write cannot make the
+    projection non-deterministic on top of being wrong.
     """
-    raise NotImplementedError
+    matches = [
+        v for v in versions if v.entity_id == entity_id and _is_effective_at(v, at)
+    ]
+    if not matches:
+        return None
+    return max(matches, key=_version_sort_key)
 
 
 def validate_no_overlap(versions: Sequence[DefinitionBase]) -> None:
@@ -135,8 +248,46 @@ def validate_no_overlap(versions: Sequence[DefinitionBase]) -> None:
     have intersecting [effective_from, effective_to) ranges.
 
     Postcondition: returns None, or raises. Never mutates.
+
+    Ranges are half-open, so versions that share a boundary — one ending exactly where
+    the next begins — do **not** overlap, and that is the normal way a definition is
+    superseded (CLAUDE.md §4.3: close the prior version, append a new one).
+
+    Versions of different entities never interact. Within one entity, sorting by start
+    date makes adjacent-pair comparison sufficient: if any two ranges intersect, some
+    adjacent pair does.
     """
-    raise NotImplementedError
+    ordered = sorted(versions, key=lambda v: (v.entity_id, *_version_sort_key(v)))
+    for entity_id, group in itertools.groupby(ordered, key=lambda v: v.entity_id):
+        members = tuple(group)
+        for earlier, later in zip(members, members[1:], strict=False):
+            overlaps = (
+                earlier.effective_to is None
+                or later.effective_from < earlier.effective_to
+            )
+            if overlaps:
+                raise AppError(
+                    ErrorCode.OVERLAPPING_VERSIONS,
+                    (
+                        f"versions of entity_id {entity_id!r} overlap: "
+                        f"[{earlier.effective_from.isoformat()}, "
+                        f"{_bound_repr(earlier.effective_to)}) intersects "
+                        f"[{later.effective_from.isoformat()}, "
+                        f"{_bound_repr(later.effective_to)})"
+                    ),
+                    {
+                        "entity_id": entity_id,
+                        "version_ids": [
+                            str(earlier.version_id),
+                            str(later.version_id),
+                        ],
+                    },
+                )
+
+
+def _bound_repr(effective_to: dt.date | None) -> str:
+    """Render an exclusive end bound; open-ended reads as unbounded."""
+    return "open" if effective_to is None else effective_to.isoformat()
 
 
 class ExpectedObligation(BaseModel):
@@ -175,8 +326,71 @@ def expand_fixed_costs(
         obligation_id is deterministic: f"expected:{entity_id}:{period_id}"
         due_date is clamp_day_to_month(period, due_day)
         no I/O, no clock
+
+    `fixed_costs` is the full version history — the same bundle the projection holds —
+    and the precondition is discharged *here*, by resolving each distinct `entity_id` at
+    the period's start date. Resolving inside rather than trusting the caller is what
+    makes "one row per entity per period" structurally true: a caller cannot pass two
+    versions of one cost and get two obligations for the same period, which is exactly
+    the shape the deterministic `obligation_id` forbids.
+
+    An entity with no version effective at the period start contributes nothing, which is
+    how a cost that has not started yet, or has been closed out, drops out of a period
+    without any special case.
+
+    `recurring_id` is the `entity_id`, per the `FixedCost` docstring — that is the key an
+    explicit `ObligationRaised` supersedes on (`supersede_expected`).
+
+    Rows come back sorted by `(due_date, obligation_id)`, so the result does not depend
+    on the order `fixed_costs` arrived in.
     """
-    raise NotImplementedError
+    period_start, _period_end_exclusive = resolver.bounds(period_id)
+    entity_ids = sorted({fc.entity_id for fc in fixed_costs})
+    effective = [
+        version
+        for version in (
+            resolve_version(fixed_costs, entity_id, period_start)
+            for entity_id in entity_ids
+        )
+        if version is not None
+    ]
+    return tuple(
+        sorted(
+            (
+                ExpectedObligation(
+                    obligation_id=f"expected:{fc.entity_id}:{period_id}",
+                    period_id=period_id,
+                    due_date=clamp_day_to_month(
+                        period_start.year, period_start.month, fc.due_day
+                    ),
+                    amount_minor=fc.amount_minor,
+                    payee=fc.payee,
+                    category=fc.category,
+                    recurring_id=fc.entity_id,
+                    source=ObligationSource.EXPECTED,
+                )
+                for fc in effective
+            ),
+            key=lambda o: (o.due_date, o.obligation_id),
+        )
+    )
+
+
+def _match_key(
+    recurring_id: str | None,
+    obligation_id: str,
+    period_id: PeriodId,
+) -> tuple[str, str, str]:
+    """The key an expected row and an explicit obligation match on.
+
+    `(recurring_id, period of due_date)` per the contract, when there is a
+    `recurring_id`. A one-off bill has none and can only ever match itself, so it is
+    keyed by `obligation_id` instead — otherwise every ad-hoc obligation in a period
+    would collide with every other one under a shared `None`.
+    """
+    if recurring_id is None:
+        return ("obligation", obligation_id, "")
+    return ("recurring", recurring_id, period_id)
 
 
 def supersede_expected(
@@ -192,5 +406,57 @@ def supersede_expected(
         an expected row with a match is REPLACED, not summed
         a raised event with no expected match is included as source == RAISED
         result contains no duplicate (recurring_id, period) pairs
+
+    Actual beats forecast (PLAN.md §8.1): a match drops the expected row entirely and
+    keeps the explicit one, carrying the event's own `obligation_id` so that a
+    `PaymentMade` referencing it resolves. Summing the two would double-count the bill —
+    the recognition-principle failure in its obligation-shaped form.
+
+    Two explicit obligations sharing one `(recurring_id, period)` would break the
+    no-duplicates postcondition, so the last in ledger order `(date, recorded_at,
+    event_id)` wins: the same "later supersedes earlier" reading, applied within the
+    ledger rather than between ledger and forecast. Sorting the events here rather than
+    trusting the caller keeps the result independent of arrival order.
+
+    A raised obligation with no `recurring_id` is a one-off: it matches nothing, is
+    always kept, and never suppresses an expected row.
+
+    Note that period membership for an `ObligationRaised` comes from `due_date`, never
+    from `date` (CONTRACTS.md §3.2).
     """
-    raise NotImplementedError
+    ordered = sorted(raised, key=lambda e: (e.date, e.recorded_at, str(e.event_id)))
+    by_key = {
+        _match_key(
+            event.recurring_id,
+            event.obligation_id,
+            resolver.period_for(event.due_date),
+        ): event
+        for event in ordered
+    }
+    survivors = [
+        row
+        for row in expected
+        if _match_key(
+            row.recurring_id, row.obligation_id, resolver.period_for(row.due_date)
+        )
+        not in by_key
+    ]
+    replacements = [
+        ExpectedObligation(
+            obligation_id=event.obligation_id,
+            period_id=resolver.period_for(event.due_date),
+            due_date=event.due_date,
+            amount_minor=event.amount_minor,
+            payee=event.payee,
+            category=event.category,
+            recurring_id=event.recurring_id,
+            source=ObligationSource.RAISED,
+        )
+        for event in by_key.values()
+    ]
+    return tuple(
+        sorted(
+            survivors + replacements,
+            key=lambda o: (o.due_date, o.obligation_id),
+        )
+    )
