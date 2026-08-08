@@ -30,6 +30,8 @@ dev = [
     "mypy>=1.11",
     "pytest>=8.0",
     "hypothesis>=6.100",
+    "httpx2>=2.9",        # starlette.testclient.TestClient; starlette >=1.4 deprecates
+                          # the httpx backend in its favour. tests/unit/api/** only.
 ]
 
 [tool.setuptools]
