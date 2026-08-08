@@ -351,10 +351,31 @@ Savings, `apr_bps = 450` (4.50%), balance `500_000` ($5,000.00), 30-day period:
 ```
 500000 * 450 * 30 // 3_650_000 = 1849    ($18.49)
 
-savings balance      500_000 -> 501_849
-allocatable_income   unchanged
-discretionary        unchanged
+interest_minor        1849, is_estimate = True    (this cycle)
+close_balance_minor   500_000 -> 501_849          (the NEXT cycle opens here)
+allocatable_income    unchanged
+discretionary         unchanged
 ```
+
+**Where a credited estimate actually lands.** "Credited to that same account" (§7.1) is
+about routing — the interest belongs to the account rather than to income — and not
+about which field of `State` moves. An estimate raises the *next* cycle's
+`close_balance_minor`, the `501_849` above, and the cycle after that computes its
+interest on the higher figure. That is the compounding described in §7.4, and it is
+where the arrow in this example is observable.
+
+What an estimate does **not** move is `AccountBalance.balance_minor`, which counts
+recorded `InterestEarned` / `InterestCharged` events only. For the ledger above it still
+reports `500_000`, and `cumulative_interest_minor` still reports `0`.
+
+The split follows from §7.3 rather than qualifying it. An estimate is "always flagged as
+such"; `StatementCycleSummary` carries `is_estimate` and `AccountBalance` has no such
+field, so folding an estimate into `balance_minor` would produce an *unflagged* one — a
+balance that quietly disagrees with the bank and cannot be told apart from a confirmed
+figure. Recording the actual `InterestEarned` is what moves the account, and by then it
+is not an estimate. `fold_account_balances` therefore takes no cycles, which is a
+consequence of this rule and not an omission in its signature. See `CONTRACTS.md` §5.2
+and §8.6.
 
 ### 7.3 Estimate vs. actual
 

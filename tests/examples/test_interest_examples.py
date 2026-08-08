@@ -20,8 +20,6 @@ from __future__ import annotations
 import datetime as dt
 from typing import Final
 
-import pytest
-
 from core.interest import interest_for_cycle
 from core.types import AccountKind, BudgetTiming, Minor
 from domain.accounts import StatementCycleSummary
@@ -56,9 +54,14 @@ from tests.properties.strategies import (
 #
 #       500000 * 450 * 30 // 3_650_000 = 1849    ($18.49)
 #
-#       savings balance      500_000 -> 501_849
-#       allocatable_income   unchanged
-#       discretionary        unchanged
+#       interest_minor        1849, is_estimate = True    (this cycle)
+#       close_balance_minor   500_000 -> 501_849          (the NEXT cycle opens here)
+#       allocatable_income    unchanged
+#       discretionary         unchanged
+#
+#   §7.2 names the field the arrow describes and the field it does not: an estimate
+#   raises the next cycle's close balance and compounds from there, and never reaches
+#   `AccountBalance.balance_minor`, which is the recorded view (CONTRACTS.md §5.2).
 
 # -- the card ---------------------------------------------------------------------
 _CARD_BALANCE_MINOR: Final[Minor] = 120_000
@@ -87,8 +90,16 @@ _CARD_CYCLE_ID: Final = "card:2026-02"
 #: §7.1 accrues on the balance at period close), and April 2026 has 30 days.
 _SAVINGS_CYCLE_ID: Final = "savings:2026-04"
 
+#: The cycle §7.2's arrow is observable on: the estimate raises the balance the NEXT
+#: cycle opens and closes on, and that cycle's own interest compounds off it.
+_SAVINGS_NEXT_CYCLE_ID: Final = "savings:2026-05"
+_SAVINGS_NEXT_CYCLE_DAYS: Final = 31
+#: 501849 * 450 * 31 // 3_650_000 — compounded off the estimate, not off 500_000.
+_SAVINGS_NEXT_INTEREST_MINOR: Final[Minor] = 1_918
+
 _MARCH_15: Final = dt.date(2026, 3, 15)
 _APRIL_30: Final = dt.date(2026, 4, 30)
+_MAY_31: Final = dt.date(2026, 5, 31)
 
 
 def _cycle(state: State, cycle_id: str) -> StatementCycleSummary:
@@ -349,44 +360,25 @@ def test_a_recorded_actual_supersedes_the_estimate_and_credits_the_account() -> 
     assert state.savings.balance_minor == _SAVINGS_BALANCE_AFTER_MINOR
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "computed interest never reaches AccountBalance.balance_minor, so PLAN.md §7.2's "
-        "'savings balance 500_000 -> 501_849' reports 500_000 — see report"
-    ),
-)
 def test_a_savings_account_is_credited_the_interest_it_earned() -> None:
-    """§7.2, the disputed line: **"savings balance `500_000` -> `501_849`"**.
+    """§7.2's arrow: `close_balance_minor  500_000 -> 501_849`, and where it does not go.
 
-    PLAN.md §7.1 says an asset account's interest "is credited to that same account", and
-    §7.2 prints the resulting balance. The projection computes `1849` for this cycle —
-    `test_the_savings_example_appears_in_state_as_a_30_day_period_earning_1849` asserts
-    exactly that — but `State.accounts` still reports `500_000`, and
-    `SavingsSummary.cumulative_interest_minor` still reports `0`.
+    §7.2 names the field the estimate moves and the field it does not, so this example
+    asserts both halves — the second is the load-bearing one, because a balance that
+    silently absorbed an estimate would look right here and be wrong at the bank.
 
-    The cause is that `fold_account_balances` counts recorded `InterestEarned` /
-    `InterestCharged` events only, and its frozen signature (CONTRACTS.md §8.6) takes no
-    statement cycles, so estimates structurally cannot reach it. `fold_statement_cycles`,
-    meanwhile, *does* carry its own estimates forward into later cycles' close balances —
-    so the two views of the same account disagree, which is the sharper form of the
-    problem. On the card example above, `card:2026-03` opens on a close balance of
-    `-122_241` while `State.accounts` reports the card at `-120_000`.
+    An estimate raises the balance the **next** cycle opens and closes on. `savings:
+    2026-05` therefore closes on `501_849`, and its own interest compounds off that
+    figure rather than off `500_000` — `1918`, not the `1849` this cycle earned. That
+    chaining is what PLAN.md §7.4 requires of the cycle fold.
 
-    This is left `xfail(strict=True)` rather than fixed: `domain/` is not this branch's
-    to write (PLAN.md §13.2), and choosing between "estimates credit the balance" and
-    "§7.2's line describes the actual only" is a contract decision, not a local one
-    (CLAUDE.md §6). Raised in the report.
-
-    Minimal deterministic repro — no Hypothesis, no seed:
-
-        Account(entity_id="savings", kind=SAVINGS, apr_bps=450, effective_from=2020-01-01)
-        AccountOpeningBalance(account_id="savings", amount_minor=500_000, date=2026-04-01)
-        project(events, definitions, as_of_date=2026-04-30)
-
-        State.statement_cycles["savings:2026-04"].interest_minor == 1849   # computed
-        State.accounts["savings"].balance_minor                  == 500_000
-                                                        expected == 501_849
+    `AccountBalance` is the recorded view (CONTRACTS.md §5.2). It counts `InterestEarned`
+    / `InterestCharged` events only, so it still reports `500_000` and a cumulative
+    interest of `0`. `fold_account_balances` takes no cycles for that reason, which is a
+    consequence of §7.3's "always flagged as such" — `AccountBalance` has no
+    `is_estimate` field, and an unflagged estimate is indistinguishable from an actual.
+    `test_a_recorded_actual_supersedes_the_estimate_and_credits_the_account` above is the
+    other side of it: record the event and the account does move.
     """
     definitions = definitions_bundle(
         accounts=_savings_only(), policies=(allocation_policy(),)
@@ -397,13 +389,31 @@ def test_a_savings_account_is_credited_the_interest_it_earned() -> None:
         ),
     )
 
-    state = project(events, definitions, _APRIL_30)
+    # Through the following cycle, so the arrow has somewhere to be observed.
+    state = project(events, definitions, _MAY_31)
+
+    # The estimate is there, it is the §7.2 figure, and it is flagged.
+    earning = _cycle(state, _SAVINGS_CYCLE_ID)
+    assert earning.interest_minor == _SAVINGS_INTEREST_MINOR
+    assert earning.is_estimate is True
+    assert earning.close_balance_minor == _SAVINGS_BALANCE_MINOR
+
+    # §7.2's arrow: the next cycle opens and closes on the credited balance, and
+    # compounds its own interest off it (PLAN.md §7.4).
+    following = _cycle(state, _SAVINGS_NEXT_CYCLE_ID)
+    assert following.close_balance_minor == _SAVINGS_BALANCE_AFTER_MINOR
+    assert following.interest_minor == _SAVINGS_NEXT_INTEREST_MINOR
+    assert (
+        _SAVINGS_BALANCE_AFTER_MINOR
+        * _SAVINGS_APR_BPS
+        * _SAVINGS_NEXT_CYCLE_DAYS
+        // _DENOMINATOR
+        == _SAVINGS_NEXT_INTEREST_MINOR
+    )
+
+    # And the field it deliberately does not reach, until an actual is recorded.
     savings = next(
         balance for balance in state.accounts if balance.account_id == SAVINGS
     )
-
-    # The estimate is there, and it is the §7.2 figure.
-    assert _cycle(state, _SAVINGS_CYCLE_ID).interest_minor == _SAVINGS_INTEREST_MINOR
-
-    # PLAN.md §7.2: the balance it is credited to.
-    assert savings.balance_minor == _SAVINGS_BALANCE_AFTER_MINOR
+    assert savings.balance_minor == _SAVINGS_BALANCE_MINOR
+    assert savings.cumulative_interest_minor == 0

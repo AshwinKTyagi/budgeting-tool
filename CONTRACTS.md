@@ -432,7 +432,18 @@ class AccountBalance(BaseModel):
     balance_minor: Minor                  # SIGNED; negative == liability
     outstanding_minor: Minor | None       # abs(balance) for liabilities; None for assets
     apr_bps: Bps
-    cumulative_interest_minor: Minor
+    cumulative_interest_minor: Minor      # RECORDED interest events only, never estimates
+
+    # This is the RECORDED view of an account, and it carries no `is_estimate` flag, so
+    # no computed interest reaches either money field above. PLAN.md §7.3 requires every
+    # estimate be flagged; the flagged one lives on `StatementCycleSummary` below, where
+    # an estimate also compounds into the next cycle's `close_balance_minor` (PLAN.md
+    # §7.2, §7.4). An `InterestEarned` / `InterestCharged` event is what moves
+    # `balance_minor`, and by then it is an actual, not an estimate.
+    #
+    # `fold_account_balances` (§8.6) takes no statement cycles for exactly this reason.
+    # That is a consequence of the rule, not a gap in the signature — do not "fix" it by
+    # threading cycles in.
 
 
 class StatementCycleSummary(BaseModel):
@@ -1151,10 +1162,31 @@ def store_receipt(blob: bytes, content_type: str) -> tuple[str, str]:
 ### 8.9 `api/`
 
 ```python
+def now_utc() -> dt.datetime:
+    """The instant an append is stamped with as `recorded_at`.
+
+    The second of the two clock reads in the codebase, and the last. Every event carries
+    a `recorded_at` (§3.1), and `ingestion/` made it an explicit parameter on every entry
+    point precisely so the HTTP boundary would decide it. `resolve_as_of` cannot serve
+    that need: it returns a business date, and a business date must never be turned into
+    an instant (CLAUDE.md §4.5) — there is no correct time-of-day to invent.
+
+    Postconditions:
+        returns a timezone-aware UTC datetime; satisfies `UtcInstant` without conversion
+        never derived from `as_of`, and never from any business date
+        never called from core/ or domain/
+        shares one underlying clock call site with `resolve_as_of`
+    """
+    raise NotImplementedError
+
+
 def resolve_as_of(as_of: dt.date | None, tz: str) -> dt.date:
     """Resolve the effective as_of_date.
 
-    THE ONLY CLOCK READ IN THE CODEBASE (CLAUDE.md §4.4).
+    The only clock read that produces a DATE, and the only place `BUDGET_TZ` is read
+    (CLAUDE.md §4.4). Together with `now_utc` above it accounts for every clock read in
+    the codebase; both delegate to a single private call site in `api/clock.py`, so
+    "how many places read a clock" stays answerable by counting references to one name.
 
     Preconditions:
         tz is a valid IANA zone name
