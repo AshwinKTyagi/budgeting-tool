@@ -83,7 +83,7 @@ form h2 { margin-top: 0; }
   margin-bottom: 1.5rem;
 }
 
-.tabs a {
+.tabs a, .tabs button {
   appearance: none;
   background: none;
   border: 0;
@@ -96,8 +96,18 @@ form h2 { margin-top: 0; }
   text-decoration: none;
 }
 
-.tabs a:hover { color: var(--text); }
-.tabs a.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tabs a:hover, .tabs button:hover { color: var(--text); }
+
+.tabs a.active, .tabs button.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.tabs.full a, .tabs.full button {
+  flex: 1;
+  text-align: center;
+}
 
 /* ------------------------------------------------------------------- forms */
 
@@ -107,6 +117,12 @@ form h2 { margin-top: 0; }
   gap: 1rem;
   align-items: start;
 }
+
+/* one form in the row: hold the column width instead of stretching to full */
+.grid.single { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+
+/* one form stretched across the full content width */
+.grid.full { grid-template-columns: 1fr; }
 
 form {
   background: var(--surface);
