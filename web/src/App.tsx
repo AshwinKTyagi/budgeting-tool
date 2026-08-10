@@ -12,11 +12,11 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<Layout />}>
-            <Route index element={<Navigate to="/setup" replace />} />
+            <Route index element={<Navigate to="/overview" replace />} />
+            <Route path="overview" element={<OverviewPage />} />
             <Route path="setup" element={<SetupPage />} />
             <Route path="recurring" element={<RecurringPage />} />
             <Route path="record" element={<RecordPage />} />
-            <Route path="overview" element={<OverviewPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

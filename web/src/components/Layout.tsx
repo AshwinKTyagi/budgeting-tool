@@ -2,10 +2,10 @@ import { NavLink, Outlet } from "react-router-dom";
 import { useBudget } from "../context/BudgetContext";
 
 const NAV = [
+  { to: "/overview", label: "Overview" },
   { to: "/setup", label: "Setup" },
   { to: "/recurring", label: "Recurring" },
   { to: "/record", label: "Record" },
-  { to: "/overview", label: "Overview" },
 ] as const;
 
 export function Layout() {
