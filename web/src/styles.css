@@ -71,8 +71,19 @@ h1 { font-size: 1.35rem; margin: 0; letter-spacing: -0.01em; }
 h2 { font-size: 1rem; margin: 1.75rem 0 0.75rem; letter-spacing: 0.01em; }
 form h2 { margin-top: 0; }
 
-.as-of { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
-.as-of label { color: var(--muted); }
+.as-of { display: flex; align-items: center; justify-content: center ; gap: 0.5rem; font-size: 1rem; }
+
+.as-of label { 
+  display: inline;
+  margin-bottom: 0;
+  white-space: nowrap; 
+  color: var(--muted); 
+}
+
+.as-of input {
+  width: auto;
+  margin-top: 0;
+}
 
 /* -------------------------------------------------------------------- tabs */
 
@@ -170,6 +181,14 @@ button.ghost {
   font: inherit;
   font-size: 0.8rem;
   padding: 0.35rem 0.7rem;
+}
+
+button.ghost.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
+  line-height: 0;
 }
 
 button.ghost:hover { color: var(--text); }
