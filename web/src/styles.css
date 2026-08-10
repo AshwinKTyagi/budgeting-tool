@@ -71,8 +71,19 @@ h1 { font-size: 1.35rem; margin: 0; letter-spacing: -0.01em; }
 h2 { font-size: 1rem; margin: 1.75rem 0 0.75rem; letter-spacing: 0.01em; }
 form h2 { margin-top: 0; }
 
-.as-of { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; }
-.as-of label { color: var(--muted); }
+.as-of { display: flex; align-items: center; justify-content: center ; gap: 0.5rem; font-size: 1rem; }
+
+.as-of label { 
+  display: inline;
+  margin-bottom: 0;
+  white-space: nowrap; 
+  color: var(--muted); 
+}
+
+.as-of input {
+  width: auto;
+  margin-top: 0;
+}
 
 /* -------------------------------------------------------------------- tabs */
 
@@ -83,7 +94,7 @@ form h2 { margin-top: 0; }
   margin-bottom: 1.5rem;
 }
 
-.tabs button {
+.tabs a, .tabs button {
   appearance: none;
   background: none;
   border: 0;
@@ -93,10 +104,21 @@ form h2 { margin-top: 0; }
   font: inherit;
   padding: 0.6rem 0.9rem;
   margin-bottom: -1px;
+  text-decoration: none;
 }
 
-.tabs button:hover { color: var(--text); }
-.tabs button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tabs a:hover, .tabs button:hover { color: var(--text); }
+
+.tabs a.active, .tabs button.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.tabs.full a, .tabs.full button {
+  flex: 1;
+  text-align: center;
+}
 
 /* ------------------------------------------------------------------- forms */
 
@@ -106,6 +128,12 @@ form h2 { margin-top: 0; }
   gap: 1rem;
   align-items: start;
 }
+
+/* one form in the row: hold the column width instead of stretching to full */
+.grid.single { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+
+/* one form stretched across the full content width */
+.grid.full { grid-template-columns: 1fr; }
 
 form {
   background: var(--surface);
@@ -155,6 +183,14 @@ button.ghost {
   padding: 0.35rem 0.7rem;
 }
 
+button.ghost.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.35rem;
+  line-height: 0;
+}
+
 button.ghost:hover { color: var(--text); }
 button:disabled { opacity: 0.55; cursor: progress; }
 
@@ -176,6 +212,24 @@ form > .hint { margin-bottom: 1rem; }
 .total { font-size: 0.8rem; margin: -0.3rem 0 0.85rem; font-family: var(--mono); }
 .total.bad { color: var(--danger); }
 .total.good { color: var(--ok); }
+
+.split { margin-bottom: 0.85rem; }
+.split-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.3rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.split input[type="range"] {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  accent-color: var(--accent);
+}
 
 /* field-level errors, keyed on the API's details.errors[].loc */
 .err { display: none; color: var(--danger); font-size: 0.78rem; margin-top: 0.3rem; }
@@ -271,6 +325,3 @@ tr.voided td:last-child { text-decoration: none; }
 }
 
 .chart svg { display: block; }
-.chart .axis  { fill: var(--muted); font-size: 11px; }
-.chart .gridline { stroke: var(--border); }
-.chart .legend { fill: var(--text); font-size: 11px; }

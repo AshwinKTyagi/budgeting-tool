@@ -13,6 +13,7 @@ Paying a credit card bill is a transfer, not an expense: the purchase was alread
 ## Requirements
 
 - Python 3.12+
+- Node.js 22+ (for the Vite/React data-entry UI)
 - SQLite by default (any SQLAlchemy-supported URL works)
 
 ## Quick start
@@ -23,12 +24,33 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 
 alembic upgrade head
+
+cd web && npm install && npm run build && cd ..
 uvicorn serve:app --reload
 ```
 
 Open [http://127.0.0.1:8000](http://127.0.0.1:8000) for the data-entry UI. The API is at `/api/v1` (OpenAPI at `/docs`).
 
-`serve.py` mounts the UI and API on one origin so the browser needs no CORS setup.
+`serve.py` mounts the built UI (`web/dist`) and the API on one origin so the browser needs no CORS setup.
+
+### Frontend development
+
+For hot reload, run the API and Vite together:
+
+```bash
+# terminal 1
+uvicorn serve:app --reload
+
+# terminal 2
+cd web && npm run dev
+```
+
+Vite serves the UI at [http://127.0.0.1:5173](http://127.0.0.1:5173) and proxies `/api` to uvicorn. Pages: `/account`, `/setup`, `/recurring`, `/record`, `/overview`.
+
+```bash
+cd web && npm test    # Vitest (money helpers)
+cd web && npm run build
+```
 
 ## Configuration
 
@@ -53,7 +75,7 @@ domain/        events, definitions, accounts, project() — no I/O, no clock
 persistence/   SQLAlchemy models, repositories, Alembic migrations
 ingestion/     append-only event + receipt ingestion
 api/           FastAPI routers and DTOs
-web/           static data-entry page
+web/           Vite + React + TypeScript data-entry SPA (build → web/dist)
 tools/         domain purity gate (AST check over core/ and domain/)
 tests/         unit, property (Hypothesis), and PLAN.md example tests
 ```
@@ -80,9 +102,11 @@ python tools/check_domain_purity.py
 
 mypy --strict .
 pytest
+
+cd web && npm test && npm run build
 ```
 
-CI runs those three gates on Python 3.12 and 3.14 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+CI runs the Python gates and the frontend build/tests on Python 3.12 and 3.14 ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
 
 ## Design docs
 

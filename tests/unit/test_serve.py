@@ -1,6 +1,6 @@
 """The static mount must not shadow the API.
 
-`serve.py` mounts `StaticFiles` at `/`, which matches *every* path. Starlette tests
+`serve.py` mounts `SpaStaticFiles` at `/`, which matches *every* path. Starlette tests
 routes in registration order, so the only thing standing between the mount and the whole
 API is that the routers were included first. That is an ordering invariant with no type
 to enforce it and no symptom when it breaks that names its own cause: a shadowed API
@@ -44,6 +44,15 @@ API_PATHS = (
     "/api/v1/ledger",
     "/api/v1/charts/series",
     "/api/v1/definitions/account",
+)
+
+#: Client-side routes owned by React Router. They must hit the SPA mount, not the API.
+SPA_PATHS = (
+    "/account",
+    "/setup",
+    "/recurring",
+    "/record",
+    "/overview",
 )
 
 
@@ -92,16 +101,30 @@ def test_unmatched_path_falls_through_to_the_mount() -> None:
     assert _dispatch("/index.html") is MOUNT
 
 
+def test_spa_paths_fall_through_to_the_mount() -> None:
+    """Deep links are served by the SPA, not claimed by the API."""
+    for path in SPA_PATHS:
+        assert _dispatch(path) is MOUNT, path
+
+
 def test_index_is_served_at_the_root() -> None:
-    """`html=True` turns `/` into `web/index.html`."""
+    """`html=True` turns `/` into `web/dist/index.html`."""
     with TestClient(serve.app) as client:
         response = client.get("/")
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
 
 
-def test_client_assets_are_served() -> None:
-    """The page's own scripts and stylesheet resolve through the mount."""
+def test_spa_deep_link_serves_index() -> None:
+    """A hard refresh on `/setup` returns the SPA shell."""
     with TestClient(serve.app) as client:
-        for asset in ("/app.js", "/chart.js", "/styles.css"):
-            assert client.get(asset).status_code == 200, asset
+        response = client.get("/setup")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert b"root" in response.content
+
+
+def test_built_assets_are_referenced() -> None:
+    """The built index pulls hashed assets from `/assets/`."""
+    index = (serve.WEB_DIST / "index.html").read_text(encoding="utf-8")
+    assert "/assets/" in index or "src=" in index
