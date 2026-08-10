@@ -8,3 +8,6 @@ blobs/
 .mypy_cache/
 .hypothesis/
 .pytest_cache/
+node_modules/
+web/dist/
+web/node_modules/

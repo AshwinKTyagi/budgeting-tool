@@ -1,25 +1,15 @@
-/* The charting seam.
+/**
+ * The charting seam.
  *
- * `renderSeries` is the whole of this module's contract: it takes the shape
- * `GET /api/v1/charts/series` already returns and draws it. Swapping in Chart.js,
- * Observable Plot or D3 — or growing the full metric/grain/group_by explorer — is a
- * change to this one function and to nothing that calls it.
+ * Takes the shape `GET /api/v1/charts/series` already returns and draws it.
+ * Grouped columns, not stacked — remaining can go negative when overspent.
  *
- * Inline SVG rather than a library: two series over a dozen monthly buckets does not
- * repay a vendored bundle, and this keeps the repository dependency-free.
- *
- * Grouped columns, not stacked. Spent and remaining do sum to the allocated total,
- * which argues for a stack — but `discretionary_remaining_minor` goes negative the
- * moment a period is overspent, and a stacked segment cannot render a negative part of
- * a whole. Grouped columns off a zero baseline show the overspend as a bar below the
- * line, which is the case the reader most needs to see.
- *
- * Palette: slots 1 and 2 of the validated categorical order, stepped per mode. Verified
- * with the dataviz validator against this page's own surfaces (#ffffff / #1e2124) —
- * all five checks pass in both modes: worst-pair CVD ΔE 24.7 light / 26.8 dark against
- * a target of 8, normal-vision ΔE 33.6 / 31.8 against a floor of 15, both slots ≥ 3:1
- * against the surface. Do not hand-edit these hexes; re-run the validator if they change.
+ * Palette: slots 1 and 2 of the validated categorical order. Do not hand-edit
+ * these hexes; re-run the validator if they change.
  */
+
+import { useEffect, useRef } from "react";
+import type { ChartSeries } from "../lib/types";
 
 const STYLE_ID = "bt-chart-style";
 
@@ -76,14 +66,13 @@ const STYLE = `
 `;
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-
 const PAD = { top: 30, right: 14, bottom: 34, left: 68 };
-const BAR_MAX = 24; // cap: never fill the slot
-const BAR_GAP = 2; // the surface gap that separates touching marks
-const CORNER = 4; // rounded data-end
+const BAR_MAX = 24;
+const BAR_GAP = 2;
+const CORNER = 4;
 const MIN_BAND = 62;
 
-function svg(tag, attrs = {}) {
+function svg(tag: string, attrs: Record<string, string | number | undefined> = {}): SVGElement {
   const node = document.createElementNS(SVG_NS, tag);
   for (const [key, value] of Object.entries(attrs)) {
     if (value !== null && value !== undefined) node.setAttribute(key, String(value));
@@ -91,7 +80,7 @@ function svg(tag, attrs = {}) {
   return node;
 }
 
-function ensureStyle() {
+function ensureStyle(): void {
   if (document.getElementById(STYLE_ID)) return;
   const tag = document.createElement("style");
   tag.id = STYLE_ID;
@@ -99,8 +88,7 @@ function ensureStyle() {
   document.head.append(tag);
 }
 
-/** A scale over clean round numbers, always including zero. */
-function niceScale(min, max, target = 4) {
+function niceScale(min: number, max: number, target = 4): { lo: number; hi: number; ticks: number[] } {
   let lo = Math.min(0, min);
   let hi = Math.max(0, max);
   if (lo === hi) hi = lo + 100;
@@ -114,39 +102,31 @@ function niceScale(min, max, target = 4) {
   lo = Math.floor(lo / step) * step;
   hi = Math.ceil(hi / step) * step;
 
-  const ticks = [];
+  const ticks: number[] = [];
   for (let value = lo; value <= hi + step / 2; value += step) ticks.push(Math.round(value));
   return { lo, hi, ticks };
 }
 
-/**
- * A column with its data-end rounded and its baseline end square.
- * `up` is false for a negative value, which rounds the bottom instead.
- */
-function columnPath(x, y, width, height, up) {
+function columnPath(x: number, y: number, width: number, height: number, up: boolean): string {
   const r = Math.min(CORNER, width / 2, height);
   if (height <= 0) return "";
   return up
     ? `M${x},${y + height} L${x},${y + r} Q${x},${y} ${x + r},${y} ` +
-      `L${x + width - r},${y} Q${x + width},${y} ${x + width},${y + r} ` +
-      `L${x + width},${y + height} Z`
+        `L${x + width - r},${y} Q${x + width},${y} ${x + width},${y + r} ` +
+        `L${x + width},${y + height} Z`
     : `M${x},${y} L${x},${y + height - r} Q${x},${y + height} ${x + r},${y + height} ` +
-      `L${x + width - r},${y + height} Q${x + width},${y + height} ${x + width},${y + height - r} ` +
-      `L${x + width},${y} Z`;
+        `L${x + width - r},${y + height} Q${x + width},${y + height} ${x + width},${y + height - r} ` +
+        `L${x + width},${y} Z`;
 }
 
-/**
- * Draw grouped columns.
- *
- * @param {Element} root       container; its contents are replaced
- * @param {Array}   series     [{label, points: [{bucket, series, value_minor}]}]
- * @param {Object}  opts       {format} — minor units to a display string
- */
-export function renderSeries(root, series, { format = String } = {}) {
+export function renderSeries(
+  root: HTMLElement,
+  series: ChartSeries[],
+  { format = String }: { format?: (value: number) => string } = {},
+): void {
   ensureStyle();
   root.classList.add("bt-chart");
 
-  // Buckets are the union across series, so a metric missing a period still lines up.
   const buckets = [...new Set(series.flatMap((s) => s.points.map((p) => p.bucket)))].sort();
 
   if (buckets.length === 0) {
@@ -159,7 +139,7 @@ export function renderSeries(root, series, { format = String } = {}) {
     return;
   }
 
-  const valueAt = (s, bucket) => {
+  const valueAt = (s: ChartSeries, bucket: string) => {
     const point = s.points.find((p) => p.bucket === bucket);
     return point ? Number(point.value_minor) : 0;
   };
@@ -173,9 +153,13 @@ export function renderSeries(root, series, { format = String } = {}) {
   const plotW = width - PAD.left - PAD.right;
   const plotH = height - PAD.top - PAD.bottom;
 
-  const y = (value) => PAD.top + plotH - ((value - scale.lo) / (scale.hi - scale.lo)) * plotH;
+  const y = (value: number) =>
+    PAD.top + plotH - ((value - scale.lo) / (scale.hi - scale.lo)) * plotH;
   const band = plotW / buckets.length;
-  const barW = Math.min(BAR_MAX, (band * 0.68 - BAR_GAP * (series.length - 1)) / series.length);
+  const barW = Math.min(
+    BAR_MAX,
+    (band * 0.68 - BAR_GAP * (series.length - 1)) / series.length,
+  );
   const groupW = barW * series.length + BAR_GAP * (series.length - 1);
 
   const frame = svg("svg", {
@@ -186,7 +170,6 @@ export function renderSeries(root, series, { format = String } = {}) {
     "aria-label": `${series.map((s) => s.label).join(" and ")} by period`,
   });
 
-  // --- gridlines and y ticks. Hairline, solid, recessive.
   for (const tick of scale.ticks) {
     const ty = y(tick);
     frame.append(
@@ -202,8 +185,6 @@ export function renderSeries(root, series, { format = String } = {}) {
     frame.append(label);
   }
 
-  // The zero baseline is emphasised over the other gridlines: with a negative
-  // remaining it is the line the reader is actually comparing against.
   frame.append(
     svg("line", {
       class: "bt-base",
@@ -214,9 +195,8 @@ export function renderSeries(root, series, { format = String } = {}) {
     }),
   );
 
-  // --- columns
-  const skip = Math.ceil((buckets.length * 52) / plotW); // thin x labels rather than collide
-  const bars = [];
+  const skip = Math.ceil((buckets.length * 52) / plotW);
+  const bars: Array<SVGElement | null> = [];
 
   buckets.forEach((bucket, index) => {
     const bandStart = PAD.left + index * band;
@@ -237,8 +217,6 @@ export function renderSeries(root, series, { format = String } = {}) {
         frame.append(bar);
         bars.push(bar);
       } else {
-        // A zero-height bar still takes its slot, so `bars` stays index-aligned with
-        // (bucket, series) and the hover highlight cannot drift onto a neighbour.
         bars.push(null);
       }
     });
@@ -250,13 +228,11 @@ export function renderSeries(root, series, { format = String } = {}) {
         y: height - PAD.bottom + 18,
         "text-anchor": "middle",
       });
-      // Bucket ids come from the API — inserted as text, never as markup.
       label.textContent = bucket;
       frame.append(label);
     }
   });
 
-  // --- legend. Always present for two or more series; identity never color-alone.
   let legendX = PAD.left;
   series.forEach((s, slot) => {
     frame.append(
@@ -275,8 +251,6 @@ export function renderSeries(root, series, { format = String } = {}) {
     legendX += 15 + s.label.length * 7 + 18;
   });
 
-  // --- hover. One tooltip listing every series at that bucket, so the pointer never
-  // has to find a specific bar. The hit target is the whole band, not the painted mark.
   const tip = document.createElement("div");
   tip.className = "bt-tip";
   tip.hidden = true;
@@ -317,16 +291,16 @@ export function renderSeries(root, series, { format = String } = {}) {
       tip.hidden = false;
       tip.style.left = `${bandStart + band / 2}px`;
       tip.style.top = `${PAD.top - 6}px`;
-      for (const bar of bars) bar.classList.add("dim");
+      for (const bar of bars) bar?.classList.add("dim");
       for (let slot = 0; slot < series.length; slot += 1) {
         const bar = bars[index * series.length + slot];
-        if (bar) bar.classList.remove("dim");
+        bar?.classList.remove("dim");
       }
     };
 
     const hide = () => {
       tip.hidden = true;
-      for (const bar of bars) bar.classList.remove("dim");
+      for (const bar of bars) bar?.classList.remove("dim");
     };
 
     hit.addEventListener("pointerenter", show);
@@ -337,4 +311,27 @@ export function renderSeries(root, series, { format = String } = {}) {
   });
 
   root.replaceChildren(frame, tip);
+}
+
+type ChartProps = {
+  series: ChartSeries[];
+  format: (value: number) => string;
+};
+
+export function Chart({ series, format }: ChartProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+
+    const draw = () => renderSeries(root, series, { format });
+    draw();
+
+    const observer = new ResizeObserver(() => draw());
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, [series, format]);
+
+  return <div className="chart" ref={rootRef} />;
 }

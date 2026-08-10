@@ -83,7 +83,7 @@ form h2 { margin-top: 0; }
   margin-bottom: 1.5rem;
 }
 
-.tabs button {
+.tabs a {
   appearance: none;
   background: none;
   border: 0;
@@ -93,10 +93,11 @@ form h2 { margin-top: 0; }
   font: inherit;
   padding: 0.6rem 0.9rem;
   margin-bottom: -1px;
+  text-decoration: none;
 }
 
-.tabs button:hover { color: var(--text); }
-.tabs button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.tabs a:hover { color: var(--text); }
+.tabs a.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
 
 /* ------------------------------------------------------------------- forms */
 
@@ -271,6 +272,3 @@ tr.voided td:last-child { text-decoration: none; }
 }
 
 .chart svg { display: block; }
-.chart .axis  { fill: var(--muted); font-size: 11px; }
-.chart .gridline { stroke: var(--border); }
-.chart .legend { fill: var(--text); font-size: 11px; }
