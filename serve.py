@@ -45,7 +45,7 @@ app: FastAPI = create_app()
 class SpaStaticFiles(StaticFiles):
     """Serve built assets; fall back to `index.html` for client-side routes.
 
-    React Router owns `/setup`, `/recurring`, `/record`, and `/overview`. A hard refresh
+    React Router owns `/account`, `/setup`, `/recurring`, `/record`, and `/overview`. A hard refresh
     on those paths must return the SPA shell rather than a static 404. Real files under
     `dist/` (hashed JS/CSS) still win when present.
     """

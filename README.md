@@ -45,7 +45,7 @@ uvicorn serve:app --reload
 cd web && npm run dev
 ```
 
-Vite serves the UI at [http://127.0.0.1:5173](http://127.0.0.1:5173) and proxies `/api` to uvicorn. Pages: `/setup`, `/recurring`, `/record`, `/overview`.
+Vite serves the UI at [http://127.0.0.1:5173](http://127.0.0.1:5173) and proxies `/api` to uvicorn. Pages: `/account`, `/setup`, `/recurring`, `/record`, `/overview`.
 
 ```bash
 cd web && npm test    # Vitest (money helpers)

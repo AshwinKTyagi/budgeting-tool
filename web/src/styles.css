@@ -194,6 +194,24 @@ form > .hint { margin-bottom: 1rem; }
 .total.bad { color: var(--danger); }
 .total.good { color: var(--ok); }
 
+.split { margin-bottom: 0.85rem; }
+.split-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.3rem;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--text);
+}
+.split input[type="range"] {
+  width: 100%;
+  margin-top: 0.5rem;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  accent-color: var(--accent);
+}
+
 /* field-level errors, keyed on the API's details.errors[].loc */
 .err { display: none; color: var(--danger); font-size: 0.78rem; margin-top: 0.3rem; }
 .err.show { display: block; }

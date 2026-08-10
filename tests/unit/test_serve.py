@@ -48,6 +48,7 @@ API_PATHS = (
 
 #: Client-side routes owned by React Router. They must hit the SPA mount, not the API.
 SPA_PATHS = (
+    "/account",
     "/setup",
     "/recurring",
     "/record",

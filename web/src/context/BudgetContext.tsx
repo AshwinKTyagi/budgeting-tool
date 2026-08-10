@@ -130,7 +130,7 @@ export function flashFromUnknown(
   showFlash("error", String(err));
 }
 
-/** Load accounts into context; used by Setup and any page that needs account selects. */
+/** Load accounts into context; used by Account and any page that needs account selects. */
 export function useLoadAccounts(): AccountVersion[] {
   const { asOfQuery, accounts, setAccounts, refreshKey, showFlash } = useBudget();
 

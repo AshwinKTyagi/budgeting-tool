@@ -3,6 +3,7 @@ import { useBudget } from "../context/BudgetContext";
 
 const NAV = [
   { to: "/overview", label: "Overview" },
+  { to: "/account", label: "Account" },
   { to: "/setup", label: "Setup" },
   { to: "/recurring", label: "Recurring" },
   { to: "/record", label: "Record" },
