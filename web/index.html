@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>budgeting-tool</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header>
+  <h1>budgeting&#8209;tool</h1>
+  <div class="as-of">
+    <label for="as-of">as of</label>
+    <input type="date" id="as-of">
+    <button type="button" data-action="refresh" class="ghost">Refresh</button>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="setup" class="active">Setup</button>
+  <button role="tab" data-tab="recurring">Recurring</button>
+  <button role="tab" data-tab="record">Record</button>
+  <button role="tab" data-tab="overview">Overview</button>
+</nav>
+
+<div id="flash" class="flash" hidden></div>
+
+<!-- ===================================================== Setup ============ -->
+<section data-panel="setup">
+
+  <div class="grid">
+    <form data-form="account" novalidate>
+      <h2>Add an account</h2>
+      <p class="hint">Checking, savings, and cards all live here. The id is how you'll
+        refer to this account everywhere else &mdash; short and lowercase works best.</p>
+
+      <label>Account id
+        <input name="entity_id" required placeholder="checking">
+        <small class="err" data-err="entity_id"></small>
+      </label>
+
+      <label>Name
+        <input name="name" required placeholder="Everyday Checking">
+        <small class="err" data-err="name"></small>
+      </label>
+
+      <label>Kind
+        <select name="kind">
+          <option value="CHECKING">Checking</option>
+          <option value="SAVINGS">Savings</option>
+          <option value="CREDIT_CARD">Credit card</option>
+          <option value="LOAN">Loan</option>
+        </select>
+      </label>
+
+      <label>APR %
+        <input name="apr_bps" inputmode="decimal" value="0" placeholder="21.99">
+        <small class="hint">0 for anything that doesn't charge interest.</small>
+        <small class="err" data-err="apr_bps"></small>
+      </label>
+
+      <div data-card-only hidden>
+        <label>Statement closes on day
+          <input name="statement_close_day" inputmode="numeric" placeholder="15">
+          <small class="err" data-err="statement_close_day"></small>
+        </label>
+
+        <label>Payment due on day
+          <input name="payment_due_day" inputmode="numeric" placeholder="10">
+          <small class="err" data-err="payment_due_day"></small>
+        </label>
+
+        <label>Budget timing
+          <select name="budget_timing">
+            <option value="AT_PURCHASE">At purchase &mdash; a card swipe reduces discretionary now</option>
+            <option value="AT_STATEMENT_PAYMENT">At statement payment &mdash; when the bill is paid</option>
+          </select>
+        </label>
+      </div>
+
+      <label>Effective from
+        <input type="date" name="effective_from" required>
+        <small class="err" data-err="effective_from"></small>
+      </label>
+
+      <button type="submit">Add account</button>
+    </form>
+
+    <form data-form="opening-balance" novalidate>
+      <h2>Set an opening balance</h2>
+      <p class="hint">The starting point the ledger counts from. One per account &mdash;
+        everything after this is an event.</p>
+
+      <label>Account
+        <select name="account_id" data-accounts required></select>
+        <small class="err" data-err="account_id"></small>
+      </label>
+
+      <label data-balance-label>Current balance
+        <input name="amount_minor" inputmode="decimal" required placeholder="2,500.00">
+        <small class="hint" data-balance-hint>What's in the account today.</small>
+        <small class="err" data-err="amount_minor"></small>
+      </label>
+
+      <label>As of date
+        <input type="date" name="date" required>
+        <small class="err" data-err="date"></small>
+      </label>
+
+      <button type="submit">Set balance</button>
+    </form>
+
+    <form data-form="policy" novalidate>
+      <h2>Allocation policy</h2>
+      <p class="hint">How income left over after fixed costs is split. Optional &mdash;
+        with none set, the projection falls back to a silent 50/50.</p>
+
+      <label>Policy id
+        <input name="entity_id" required value="default">
+        <small class="err" data-err="entity_id"></small>
+      </label>
+
+      <label>Savings %
+        <input name="savings_bps" inputmode="decimal" required value="30">
+        <small class="err" data-err="savings_bps"></small>
+      </label>
+
+      <label>Discretionary %
+        <input name="discretionary_bps" inputmode="decimal" required value="70">
+        <small class="err" data-err="discretionary_bps"></small>
+      </label>
+
+      <p class="total" data-policy-total></p>
+
+      <label>Effective from
+        <input type="date" name="effective_from" required>
+        <small class="err" data-err="effective_from"></small>
+      </label>
+
+      <button type="submit">Save policy</button>
+    </form>
+  </div>
+
+  <h2>Accounts</h2>
+  <div data-list="accounts" class="table-wrap"></div>
+</section>
+
+<!-- ===================================================== Recurring ======== -->
+<section data-panel="recurring" hidden>
+
+  <div class="grid">
+    <form data-form="fixed-cost" novalidate>
+      <h2>Monthly expense</h2>
+      <p class="hint">Rent, utilities, subscriptions &mdash; anything that comes due on a
+        schedule. The projection turns each one into an obligation you can pay.</p>
+
+      <label>Id
+        <input name="entity_id" required placeholder="rent">
+        <small class="err" data-err="entity_id"></small>
+      </label>
+
+      <label>Name
+        <input name="name" required placeholder="Rent">
+        <small class="err" data-err="name"></small>
+      </label>
+
+      <label>Amount
+        <input name="amount_minor" inputmode="decimal" required placeholder="1,800.00">
+        <small class="err" data-err="amount_minor"></small>
+      </label>
+
+      <label>Cadence
+        <select name="cadence" data-cadence></select>
+      </label>
+
+      <label>Due on day
+        <input name="due_day" inputmode="numeric" required value="1">
+        <small class="hint">1&ndash;31, clamped to the length of the month.</small>
+        <small class="err" data-err="due_day"></small>
+      </label>
+
+      <label>Payee
+        <input name="payee" required placeholder="Landlord">
+        <small class="err" data-err="payee"></small>
+      </label>
+
+      <label>Category
+        <input name="category" required placeholder="housing">
+        <small class="err" data-err="category"></small>
+      </label>
+
+      <label>Effective from
+        <input type="date" name="effective_from" required>
+        <small class="err" data-err="effective_from"></small>
+      </label>
+
+      <button type="submit">Add monthly expense</button>
+    </form>
+
+    <form data-form="recurring-income" novalidate>
+      <h2>Recurring income</h2>
+      <p class="note">Forecast only. This does <strong>not</strong> create allocatable
+        income &mdash; only an actual income event does. Record your paychecks under
+        <em>Record &rarr; Income</em> or the budget will show zero.</p>
+
+      <label>Id
+        <input name="entity_id" required placeholder="salary">
+        <small class="err" data-err="entity_id"></small>
+      </label>
+
+      <label>Name
+        <input name="name" required placeholder="Salary">
+        <small class="err" data-err="name"></small>
+      </label>
+
+      <label>Amount
+        <input name="amount_minor" inputmode="decimal" required placeholder="4,000.00">
+        <small class="err" data-err="amount_minor"></small>
+      </label>
+
+      <label>Cadence
+        <select name="cadence" data-cadence></select>
+      </label>
+
+      <label>Arrives on day
+        <input name="anchor_day" inputmode="numeric" required value="1">
+        <small class="err" data-err="anchor_day"></small>
+      </label>
+
+      <label>Into account
+        <select name="account_id" data-accounts required></select>
+        <small class="err" data-err="account_id"></small>
+      </label>
+
+      <label>Effective from
+        <input type="date" name="effective_from" required>
+        <small class="err" data-err="effective_from"></small>
+      </label>
+
+      <button type="submit">Add recurring income</button>
+    </form>
+  </div>
+
+  <h2>Monthly expenses</h2>
+  <div data-list="fixed-cost" class="table-wrap"></div>
+
+  <h2>Recurring income</h2>
+  <div data-list="recurring-income" class="table-wrap"></div>
+</section>
+
+<!-- ===================================================== Record =========== -->
+<section data-panel="record" hidden>
+  <div class="grid">
+
+    <form data-form="expense" novalidate>
+      <h2>Expense</h2>
+      <p class="hint">A one&#8209;off purchase. A negative amount is a refund.</p>
+
+      <label>Date
+        <input type="date" name="date" required>
+        <small class="err" data-err="date"></small>
+      </label>
+
+      <label>Amount
+        <input name="amount_minor" inputmode="decimal" required placeholder="19.99">
+        <small class="err" data-err="amount_minor"></small>
+      </label>
+
+      <label>Category
+        <input name="category" required placeholder="groceries">
+        <small class="err" data-err="category"></small>
+      </label>
+
+      <label>Paid from
+        <select name="account_id" data-accounts required></select>
+        <small class="err" data-err="account_id"></small>
+      </label>
+
+      <label>Merchant <span class="opt">optional</span>
+        <input name="merchant" placeholder="Corner Store">
+        <small class="err" data-err="merchant"></small>
+      </label>
+
+      <label>Note <span class="opt">optional</span>
+        <input name="note">
+        <small class="err" data-err="note"></small>
+      </label>
+
+      <button type="submit">Record expense</button>
+    </form>
+
+    <form data-form="income" novalidate>
+      <h2>Income</h2>
+      <p class="hint">A paycheck or anything else that arrived. <strong>This</strong> is
+        what creates allocatable income.</p>
+
+      <label>Date
+        <input type="date" name="date" required>
+        <small class="err" data-err="date"></small>
+      </label>
+
+      <label>Amount
+        <input name="amount_minor" inputmode="decimal" required placeholder="4,000.00">
+        <small class="err" data-err="amount_minor"></small>
+      </label>
+
+      <label>Source
+        <input name="source" required placeholder="Employer">
+        <small class="err" data-err="source"></small>
+      </label>
+
+      <label>Into account
+        <select name="account_id" data-accounts required></select>
+        <small class="err" data-err="account_id"></small>
+      </label>
+
+      <label>Note <span class="opt">optional</span>
+        <input name="note">
+        <small class="err" data-err="note"></small>
+      </label>
+
+      <button type="submit">Record income</button>
+    </form>
+
+    <form data-form="payment" novalidate>
+      <h2>Pay a bill</h2>
+      <p class="hint">Settles an obligation raised by a monthly expense. This does not
+        reduce discretionary again &mdash; the expense was already recognised when it
+        came due.</p>
+
+      <label>Date
+        <input type="date" name="date" required>
+        <small class="err" data-err="date"></small>
+      </label>
+
+      <label>Obligation
+        <select name="obligation_id" data-obligations required></select>
+        <small class="hint" data-obligation-hint></small>
+        <small class="err" data-err="obligation_id"></small>
+      </label>
+
+      <label>Amount
+        <input name="amount_minor" inputmode="decimal" required>
+        <small class="err" data-err="amount_minor"></small>
+      </label>
+
+      <label>Paid from
+        <select name="account_id" data-accounts required></select>
+        <small class="err" data-err="account_id"></small>
+      </label>
+
+      <label>Note <span class="opt">optional</span>
+        <input name="note">
+        <small class="err" data-err="note"></small>
+      </label>
+
+      <button type="submit">Record payment</button>
+    </form>
+
+  </div>
+</section>
+
+<!-- ===================================================== Overview ========= -->
+<section data-panel="overview" hidden>
+
+  <h2>Balances</h2>
+  <div data-view="balances" class="table-wrap"></div>
+
+  <h2>This period <span data-view="period-id" class="muted"></span></h2>
+  <div data-view="period"></div>
+
+  <h2>Obligations</h2>
+  <div data-view="obligations" class="table-wrap"></div>
+
+  <div data-view="warnings"></div>
+
+  <h2>Discretionary by period</h2>
+  <div data-view="chart" class="chart"></div>
+
+  <h2>Recent activity</h2>
+  <div data-view="ledger" class="table-wrap"></div>
+</section>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>
