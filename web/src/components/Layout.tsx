@@ -53,7 +53,7 @@ export function Layout() {
         </div>
       </header>
 
-      <nav className="tabs" role="tablist">
+      <nav className="tabs full" role="tablist">
         {NAV.map((item) => (
           <NavLink key={item.to} to={item.to} role="tab">
             {item.label}
