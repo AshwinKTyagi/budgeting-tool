@@ -57,11 +57,19 @@ export type LedgerRow = {
   event_id: string;
   date: string;
   event_type: string;
+  period_id: string;
   counterparty: string | null;
   category: string | null;
   account_id: string | null;
   amount_minor: number | null;
+  note: string | null;
   is_voided: boolean;
+};
+
+export type LedgerPage = {
+  rows: LedgerRow[];
+  next_cursor: string | null;
+  total_count: number;
 };
 
 export type ChartPoint = {
