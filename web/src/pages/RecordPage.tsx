@@ -10,6 +10,7 @@ import {
   useLoadAccounts,
 } from "../context/BudgetContext";
 import { AccountSelect } from "../components/AccountSelect";
+import { AlterEventForm } from "../components/AlterEventForm";
 import { Field } from "../components/Field";
 import { FormShell } from "../components/FormShell";
 
@@ -17,6 +18,7 @@ const TABS = [
   { id: "income", label: "Income" },
   { id: "expense", label: "Expense" },
   { id: "payment", label: "Pay a bill" },
+  { id: "alter", label: "Alter" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -385,6 +387,15 @@ export function RecordPage() {
             )}
           </FormShell>
         </div>
+      </div>
+
+      <div
+        role="tabpanel"
+        id="record-panel-alter"
+        aria-labelledby="record-tab-alter"
+        hidden={tab !== "alter"}
+      >
+        <AlterEventForm />
       </div>
     </section>
   );
