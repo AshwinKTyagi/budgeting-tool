@@ -541,12 +541,15 @@ existing `event_id`.** It is not an error and must not be reported as one.
 | `GET` | `/periods` | `from`, `to` | `PeriodListResponse` |
 | `GET` | `/periods/{period_id}` | — | `PeriodDetailResponse` |
 | `GET` | `/ledger` | `from`, `to`, `types[]`, `account_id`, `category`, `cursor`, `limit` | `LedgerPageResponse` |
+| `GET` | `/events/{event_id}` | — | `Event` |
 | `GET` | `/charts/series` | `metric`, `grain`, `from`, `to`, `group_by` | `ChartSeriesResponse` |
 | `GET` | `/accounts` | `as_of` | `AccountListResponse` |
 | `GET` | `/definitions/{kind}` | `as_of`, `include_history` | `DefinitionListResponse` |
 | `POST` | `/definitions/{kind}` | `NewDefinitionVersionRequest` | `201` |
 
 `kind` ∈ `recurring-income | fixed-cost | allocation-policy | account`.
+
+**`GET /events/{event_id}`** returns the stored canonical `Event` (the same discriminated union as ingest). `UNKNOWN_EVENT` (404) if missing; a malformed id is `VALIDATION_FAILED` (422).
 
 **`GET /ledger`** serves the spreadsheet view: one flat row per event, cursor-paginated,
 newest first by `(date, recorded_at, event_id)`. Voided events are included with
@@ -566,6 +569,7 @@ class LedgerRow(BaseModel):
     is_voided: bool
     voided_by_event_id: UUID | None
     note: str | None
+    origin: Literal["manual", "receipt", "external"]  # from dedupe_key prefix
 
 class LedgerPageResponse(BaseModel):
     rows: tuple[LedgerRow, ...]

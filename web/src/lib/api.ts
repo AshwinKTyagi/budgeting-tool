@@ -64,10 +64,13 @@ export type AppendResult = {
 };
 
 /** Append one event. Returns `{event_id, dedupe_key, deduplicated}`. */
-export async function postEvent(event: Record<string, unknown>): Promise<AppendResult> {
+export async function postEvent(
+  event: Record<string, unknown>,
+  options: { clientNonce?: string | null } = {},
+): Promise<AppendResult> {
   const { data } = await api<AppendResult>("POST", "/events", {
     event,
-    client_nonce: null,
+    client_nonce: options.clientNonce ?? null,
   });
   return data;
 }

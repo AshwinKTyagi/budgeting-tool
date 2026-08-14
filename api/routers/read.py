@@ -21,6 +21,8 @@ import datetime as dt
 from collections.abc import Callable
 from typing import Annotated
 
+from uuid import UUID
+
 from fastapi import APIRouter, Query
 from sqlalchemy.orm import Session
 
@@ -38,6 +40,7 @@ from api.dtos import (
 )
 from api.ledger import build_voided_index, decode_cursor, encode_cursor, to_ledger_row
 from core.types import AppError, ErrorCode, PeriodId
+from domain.events import Event
 from domain.projection import State
 from persistence.repositories import EventRepository
 
@@ -193,6 +196,31 @@ def read_ledger(
         next_cursor=next_cursor,
         total_count=len(matching),
     )
+
+
+@router.get("/events/{event_id}", response_model=Event, summary="One stored event")
+def read_event(event_id: str, session: SessionDep) -> Event:
+    """The canonical event, not a ledger row — used to clone on correction.
+
+    A malformed id is `VALIDATION_FAILED` rather than a routing 404: the caller named
+    a specific event and deserves to be told the id was unreadable.
+    """
+    try:
+        parsed = UUID(event_id)
+    except ValueError as exc:
+        raise AppError(
+            ErrorCode.VALIDATION_FAILED,
+            "event_id is not a UUID",
+            {"event_id": event_id},
+        ) from exc
+    event = EventRepository(session).get(parsed)
+    if event is None:
+        raise AppError(
+            ErrorCode.UNKNOWN_EVENT,
+            f"no event {event_id}",
+            {"event_id": event_id},
+        )
+    return event
 
 
 @router.get(

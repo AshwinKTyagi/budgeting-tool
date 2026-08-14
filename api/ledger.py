@@ -19,7 +19,7 @@ import datetime as dt
 from collections.abc import Mapping, Sequence
 from uuid import UUID
 
-from api.dtos import LedgerRow
+from api.dtos import LedgerOrigin, LedgerRow
 from core.periods import PeriodResolver
 from core.types import AppError, ErrorCode, PeriodId
 from domain.events import (
@@ -80,7 +80,16 @@ def to_ledger_row(
         is_voided=event.event_id in voided_by,
         voided_by_event_id=voided_by.get(event.event_id),
         note=event.note,
+        origin=_origin(event.dedupe_key),
     )
+
+
+def _origin(dedupe_key: str) -> LedgerOrigin:
+    if dedupe_key.startswith("receipt:"):
+        return LedgerOrigin.RECEIPT
+    if dedupe_key.startswith("ext:"):
+        return LedgerOrigin.EXTERNAL
+    return LedgerOrigin.MANUAL
 
 
 def build_voided_index(voids: Sequence[Event]) -> dict[UUID, UUID]:

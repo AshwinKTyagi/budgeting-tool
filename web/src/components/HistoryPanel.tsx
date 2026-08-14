@@ -1,47 +1,29 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { isLiveRow } from "../lib/events";
+import { fromMinor } from "../lib/money";
 import {
   EMPTY_LEDGER_FILTERS,
   LEDGER_EVENT_TYPES,
-  LEDGER_PAGE_SIZE,
   ledgerQuery,
   type LedgerFilters,
 } from "../lib/ledgerQuery";
 import type { LedgerPage, LedgerRow } from "../lib/types";
 import { flashFromUnknown, useBudget, useLoadAccounts } from "../context/BudgetContext";
 import { AccountSelect } from "./AccountSelect";
-import { LedgerSpreadsheet } from "./LedgerSpreadsheet";
+import { Table, type Column } from "./Table";
 
-type LedgerPanelProps = {
+type HistoryPanelProps = {
   active: boolean;
 };
 
-async function fetchLivePage(
-  filters: LedgerFilters,
-  startCursor: string | null,
-  already: LedgerRow[],
-): Promise<{ rows: LedgerRow[]; nextCursor: string | null; totalCount: number }> {
-  let rows = already;
-  let cursor = startCursor;
-  let totalCount = 0;
-  const target = already.filter(isLiveRow).length + LEDGER_PAGE_SIZE;
-  do {
-    const { data } = await api<LedgerPage>("GET", `/ledger?${ledgerQuery(filters, cursor)}`);
-    rows = [...rows, ...data.rows];
-    cursor = data.next_cursor;
-    totalCount = data.total_count;
-  } while (rows.filter(isLiveRow).length < target && cursor !== null);
-  return { rows: rows.filter(isLiveRow), nextCursor: cursor, totalCount };
-}
-
-export function LedgerPanel({ active }: LedgerPanelProps) {
+export function HistoryPanel({ active }: HistoryPanelProps) {
   const { showFlash, refreshKey } = useBudget();
   const accounts = useLoadAccounts();
   const [draft, setDraft] = useState<LedgerFilters>(EMPTY_LEDGER_FILTERS);
   const [applied, setApplied] = useState<LedgerFilters>(EMPTY_LEDGER_FILTERS);
   const [rows, setRows] = useState<LedgerRow[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [totalCount, setTotalCount] = useState(0);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -50,10 +32,11 @@ export function LedgerPanel({ active }: LedgerPanelProps) {
     (async () => {
       setBusy(true);
       try {
-        const page = await fetchLivePage(applied, null, []);
+        const { data } = await api<LedgerPage>("GET", `/ledger?${ledgerQuery(applied, null)}`);
         if (cancelled) return;
-        setRows(page.rows);
-        setNextCursor(page.nextCursor);
+        setRows(data.rows);
+        setNextCursor(data.next_cursor);
+        setTotalCount(data.total_count);
       } catch (err) {
         if (!cancelled) flashFromUnknown(showFlash, err);
       } finally {
@@ -69,15 +52,41 @@ export function LedgerPanel({ active }: LedgerPanelProps) {
     if (nextCursor === null || busy) return;
     setBusy(true);
     try {
-      const page = await fetchLivePage(applied, nextCursor, rows);
-      setRows(page.rows);
-      setNextCursor(page.nextCursor);
+      const { data } = await api<LedgerPage>("GET", `/ledger?${ledgerQuery(applied, nextCursor)}`);
+      setRows((current) => [...current, ...data.rows]);
+      setNextCursor(data.next_cursor);
+      setTotalCount(data.total_count);
     } catch (err) {
       flashFromUnknown(showFlash, err);
     } finally {
       setBusy(false);
     }
   }
+
+  const columns: Column<LedgerRow>[] = [
+    { label: "Date", get: (r) => r.date },
+    { label: "Type", get: (r) => r.event_type },
+    { label: "Who", get: (r) => r.counterparty ?? "—" },
+    { label: "Category", get: (r) => r.category ?? "—" },
+    { label: "Account", get: (r) => r.account_id ?? "—" },
+    {
+      label: "Amount",
+      num: true,
+      get: (r) => r.amount_minor ?? 0,
+      render: (r) => (r.amount_minor === null ? "—" : fromMinor(r.amount_minor)),
+    },
+    { label: "Note", get: (r) => r.note ?? "—" },
+    {
+      label: "",
+      get: (r) => r.event_id,
+      render: (r) =>
+        r.is_voided || r.event_type === "EventVoided" ? (
+          <span className="muted">{r.is_voided ? "voided" : "void"}</span>
+        ) : (
+          <span className="muted">live</span>
+        ),
+    },
+  ];
 
   return (
     <>
@@ -111,7 +120,7 @@ export function LedgerPanel({ active }: LedgerPanelProps) {
             onChange={(event) => setDraft((f) => ({ ...f, eventType: event.target.value }))}
           >
             <option value="">All types</option>
-            {LEDGER_EVENT_TYPES.filter((type) => type !== "EventVoided").map((type) => (
+            {LEDGER_EVENT_TYPES.map((type) => (
               <option key={type} value={type}>
                 {type}
               </option>
@@ -121,7 +130,7 @@ export function LedgerPanel({ active }: LedgerPanelProps) {
         <label>
           Account
           <AccountSelect
-            name="ledger_account_id"
+            name="history_account_id"
             value={draft.accountId}
             onChange={(accountId) => setDraft((f) => ({ ...f, accountId }))}
             accounts={accounts}
@@ -142,18 +151,25 @@ export function LedgerPanel({ active }: LedgerPanelProps) {
         </button>
       </form>
 
-      <LedgerSpreadsheet rows={rows} accounts={accounts} emptyMessage="Nothing recorded yet." />
+      <div className="table-wrap">
+        <Table
+          columns={columns}
+          rows={rows}
+          emptyMessage="No history yet."
+          voided={(row) => row.is_voided}
+        />
+      </div>
 
-      {nextCursor ? (
-        <div className="ledger-footer">
-          <p className="muted">Showing {rows.length} live events</p>
+      <div className="ledger-footer">
+        <p className="muted">
+          Showing {rows.length} of {totalCount}
+        </p>
+        {nextCursor ? (
           <button type="button" className="ghost" disabled={busy} onClick={() => void loadMore()}>
             Load more
           </button>
-        </div>
-      ) : (
-        <p className="muted">Showing {rows.length} live events</p>
-      )}
+        ) : null}
+      </div>
     </>
   );
 }

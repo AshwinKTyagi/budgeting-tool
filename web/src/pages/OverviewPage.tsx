@@ -10,12 +10,14 @@ import type {
 } from "../lib/types";
 import { flashFromUnknown, useBudget } from "../context/BudgetContext";
 import { Chart } from "../components/Chart";
+import { HistoryPanel } from "../components/HistoryPanel";
 import { LedgerPanel } from "../components/LedgerPanel";
 import { Table, type Column } from "../components/Table";
 
 const TABS = [
   { id: "summary", label: "Summary" },
   { id: "ledger", label: "Ledger" },
+  { id: "history", label: "History" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -191,6 +193,15 @@ export function OverviewPage() {
         hidden={tab !== "ledger"}
       >
         <LedgerPanel active={tab === "ledger"} />
+      </div>
+
+      <div
+        role="tabpanel"
+        id="overview-panel-history"
+        aria-labelledby="overview-tab-history"
+        hidden={tab !== "history"}
+      >
+        <HistoryPanel active={tab === "history"} />
       </div>
     </section>
   );

@@ -83,6 +83,12 @@ class ReceiptUploadResponse(BaseModel):
 # tabular view shows history, it does not hide it.
 
 
+class LedgerOrigin(StrEnum):
+    MANUAL = "manual"
+    RECEIPT = "receipt"
+    EXTERNAL = "external"
+
+
 class LedgerRow(BaseModel):
     model_config = MONEY_MODEL_CONFIG
 
@@ -98,6 +104,7 @@ class LedgerRow(BaseModel):
     is_voided: bool
     voided_by_event_id: UUID | None
     note: str | None
+    origin: LedgerOrigin
 
 
 class LedgerPageResponse(BaseModel):

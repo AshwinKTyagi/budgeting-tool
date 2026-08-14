@@ -42,6 +42,7 @@ API_PATHS = (
     "/api/v1/periods",
     "/api/v1/periods/2026-01",
     "/api/v1/ledger",
+    "/api/v1/events/00000000-0000-0000-0000-000000000000",
     "/api/v1/charts/series",
     "/api/v1/definitions/account",
 )

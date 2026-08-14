@@ -53,6 +53,8 @@ export type ProjectedState = {
   warnings: Warning[];
 };
 
+export type LedgerOrigin = "manual" | "receipt" | "external";
+
 export type LedgerRow = {
   event_id: string;
   date: string;
@@ -64,6 +66,7 @@ export type LedgerRow = {
   amount_minor: number | null;
   note: string | null;
   is_voided: boolean;
+  origin: LedgerOrigin;
 };
 
 export type LedgerPage = {

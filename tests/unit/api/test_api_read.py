@@ -357,6 +357,32 @@ def test_ledger_row_shape(loaded: TestClient) -> None:
     assert row["period_id"] == "2026-03"
     assert row["is_voided"] is False
     assert row["voided_by_event_id"] is None
+    assert row["origin"] == "manual"
+
+
+def test_get_event_returns_the_canonical_payload(loaded: TestClient) -> None:
+    row = [
+        r
+        for r in loaded.get(f"{API}/ledger").json()["rows"]
+        if r["event_type"] == "ExpenseRecorded"
+    ][0]
+    body = loaded.get(f"{API}/events/{row['event_id']}").json()
+    assert body["event_type"] == "ExpenseRecorded"
+    assert body["amount_minor"] == 4_599
+    assert body["merchant"] == "Corner Store"
+    assert body["event_id"] == row["event_id"]
+
+
+def test_get_event_unknown_is_404(loaded: TestClient) -> None:
+    response = loaded.get(f"{API}/events/00000000-0000-0000-0000-000000000000")
+    assert response.status_code == 404
+    assert response.json()["code"] == ErrorCode.UNKNOWN_EVENT.value
+
+
+def test_get_event_malformed_id_is_422(loaded: TestClient) -> None:
+    response = loaded.get(f"{API}/events/not-a-uuid")
+    assert response.status_code == 422
+    assert response.json()["code"] == ErrorCode.VALIDATION_FAILED.value
 
 
 def test_an_obligation_row_takes_its_period_from_due_date(client: TestClient) -> None:
