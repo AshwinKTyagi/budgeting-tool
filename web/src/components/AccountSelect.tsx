@@ -8,6 +8,7 @@ type AccountSelectProps = {
   required?: boolean;
   className?: string;
   error?: boolean;
+  emptyLabel?: string;
 };
 
 export function AccountSelect({
@@ -18,6 +19,7 @@ export function AccountSelect({
   required,
   className,
   error,
+  emptyLabel,
 }: AccountSelectProps) {
   return (
     <select
@@ -27,7 +29,8 @@ export function AccountSelect({
       className={[className, error ? "bad" : ""].filter(Boolean).join(" ") || undefined}
       onChange={(event) => onChange(event.target.value)}
     >
-      {accounts.length === 0 ? (
+      {emptyLabel ? <option value="">{emptyLabel}</option> : null}
+      {accounts.length === 0 && !emptyLabel ? (
         <option value="">— add an account first —</option>
       ) : null}
       {accounts.map((account) => (

@@ -270,6 +270,47 @@ tr.voided td:last-child { text-decoration: none; }
 
 .empty { color: var(--muted); font-size: 0.85rem; padding: 1rem; }
 
+.ledger-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.ledger-filters label {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+  min-width: 8.5rem;
+}
+
+.ledger-filters input,
+.ledger-filters select {
+  width: auto;
+  min-width: 8.5rem;
+  margin-top: 0.25rem;
+}
+
+.ledger-filters button.ghost {
+  width: auto;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 400;
+  padding: 0.35rem 0.7rem;
+}
+
+.ledger-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.ledger-footer p { margin: 0; }
+
 .badge {
   border: 1px solid var(--border);
   border-radius: 99px;
