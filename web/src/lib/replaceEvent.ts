@@ -22,6 +22,7 @@ export async function replaceEvent(
 ): Promise<AppendResult> {
   const { data: original } = await api<CanonicalEvent>("GET", `/events/${eventId}`);
   const event = { ...cloneForAppend(original), ...overlay };
+  const result = await postEvent(event, { clientNonce: `replace:${eventId}` });
   await api("POST", `/events/${eventId}/void`, { reason });
-  return postEvent(event, { clientNonce: `replace:${eventId}` });
+  return result;
 }
