@@ -63,6 +63,8 @@ export function HistoryPanel({ active }: HistoryPanelProps) {
     }
   }
 
+  const visibleRows = rows.filter((row) => row.event_type !== "EventVoided");
+
   const columns: Column<LedgerRow>[] = [
     { label: "Date", get: (r) => r.date },
     { label: "Type", get: (r) => r.event_type },
@@ -80,8 +82,8 @@ export function HistoryPanel({ active }: HistoryPanelProps) {
       label: "",
       get: (r) => r.event_id,
       render: (r) =>
-        r.is_voided || r.event_type === "EventVoided" ? (
-          <span className="muted">{r.is_voided ? "voided" : "void"}</span>
+        r.is_voided ? (
+          <span className="muted">voided</span>
         ) : (
           <span className="muted">live</span>
         ),
@@ -120,7 +122,7 @@ export function HistoryPanel({ active }: HistoryPanelProps) {
             onChange={(event) => setDraft((f) => ({ ...f, eventType: event.target.value }))}
           >
             <option value="">All types</option>
-            {LEDGER_EVENT_TYPES.map((type) => (
+            {LEDGER_EVENT_TYPES.filter((type) => type !== "EventVoided").map((type) => (
               <option key={type} value={type}>
                 {type}
               </option>
@@ -154,7 +156,7 @@ export function HistoryPanel({ active }: HistoryPanelProps) {
       <div className="table-wrap">
         <Table
           columns={columns}
-          rows={rows}
+          rows={visibleRows}
           emptyMessage="No history yet."
           voided={(row) => row.is_voided}
         />
@@ -162,7 +164,7 @@ export function HistoryPanel({ active }: HistoryPanelProps) {
 
       <div className="ledger-footer">
         <p className="muted">
-          Showing {rows.length} of {totalCount}
+          Showing {visibleRows.length} of {totalCount}
         </p>
         {nextCursor ? (
           <button type="button" className="ghost" disabled={busy} onClick={() => void loadMore()}>
