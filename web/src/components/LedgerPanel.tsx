@@ -32,6 +32,7 @@ type Filters = {
   eventType: string;
   accountId: string;
   category: string;
+  showVoided: boolean;
 };
 
 const EMPTY_FILTERS: Filters = {
@@ -40,7 +41,16 @@ const EMPTY_FILTERS: Filters = {
   eventType: "",
   accountId: "",
   category: "",
+  showVoided: false,
 };
+
+function isHiddenVoid(row: LedgerRow): boolean {
+  return row.is_voided || row.event_type === "EventVoided";
+}
+
+function visibleRows(rows: LedgerRow[], showVoided: boolean): LedgerRow[] {
+  return showVoided ? rows : rows.filter((row) => !isHiddenVoid(row));
+}
 
 function ledgerQuery(filters: Filters, cursor: string | null): string {
   const params = new URLSearchParams();
@@ -58,6 +68,28 @@ type LedgerPanelProps = {
   active: boolean;
 };
 
+async function fetchUntilVisible(
+  filters: Filters,
+  startCursor: string | null,
+  already: LedgerRow[],
+): Promise<{ rows: LedgerRow[]; nextCursor: string | null; totalCount: number }> {
+  let rows = already;
+  let cursor = startCursor;
+  let totalCount = 0;
+  const target = visibleRows(already, filters.showVoided).length + PAGE_SIZE;
+  do {
+    const { data } = await api<LedgerPage>("GET", `/ledger?${ledgerQuery(filters, cursor)}`);
+    rows = [...rows, ...data.rows];
+    cursor = data.next_cursor;
+    totalCount = data.total_count;
+  } while (
+    !filters.showVoided &&
+    visibleRows(rows, false).length < target &&
+    cursor !== null
+  );
+  return { rows, nextCursor: cursor, totalCount };
+}
+
 export function LedgerPanel({ active }: LedgerPanelProps) {
   const { showFlash, refreshAll, refreshKey } = useBudget();
   const accounts = useLoadAccounts();
@@ -74,11 +106,11 @@ export function LedgerPanel({ active }: LedgerPanelProps) {
     (async () => {
       setBusy(true);
       try {
-        const { data } = await api<LedgerPage>("GET", `/ledger?${ledgerQuery(applied, null)}`);
+        const page = await fetchUntilVisible(applied, null, []);
         if (cancelled) return;
-        setRows(data.rows);
-        setNextCursor(data.next_cursor);
-        setTotalCount(data.total_count);
+        setRows(page.rows);
+        setNextCursor(page.nextCursor);
+        setTotalCount(page.totalCount);
       } catch (err) {
         if (!cancelled) flashFromUnknown(showFlash, err);
       } finally {
@@ -94,10 +126,10 @@ export function LedgerPanel({ active }: LedgerPanelProps) {
     if (nextCursor === null || busy) return;
     setBusy(true);
     try {
-      const { data } = await api<LedgerPage>("GET", `/ledger?${ledgerQuery(applied, nextCursor)}`);
-      setRows((current) => [...current, ...data.rows]);
-      setNextCursor(data.next_cursor);
-      setTotalCount(data.total_count);
+      const page = await fetchUntilVisible(applied, nextCursor, rows);
+      setRows(page.rows);
+      setNextCursor(page.nextCursor);
+      setTotalCount(page.totalCount);
     } catch (err) {
       flashFromUnknown(showFlash, err);
     } finally {
@@ -120,6 +152,12 @@ export function LedgerPanel({ active }: LedgerPanelProps) {
     }
   }
 
+  function applyFilters(next: Filters) {
+    setApplied({ ...next, category: next.category.trim() });
+  }
+
+  const shown = visibleRows(rows, applied.showVoided);
+
   const columns: Column<LedgerRow>[] = [
     { label: "Date", get: (r) => r.date },
     { label: "Type", get: (r) => r.event_type },
@@ -137,8 +175,8 @@ export function LedgerPanel({ active }: LedgerPanelProps) {
       label: "",
       get: (r) => r.event_id,
       render: (r) =>
-        r.is_voided ? (
-          <span className="muted">voided</span>
+        r.is_voided || r.event_type === "EventVoided" ? (
+          <span className="muted">{r.is_voided ? "voided" : "void"}</span>
         ) : (
           <button type="button" className="ghost" onClick={() => voidEvent(r)}>
             Void
@@ -153,7 +191,7 @@ export function LedgerPanel({ active }: LedgerPanelProps) {
         className="ledger-filters"
         onSubmit={(event) => {
           event.preventDefault();
-          setApplied({ ...draft, category: draft.category.trim() });
+          applyFilters(draft);
         }}
       >
         <label>
@@ -205,18 +243,37 @@ export function LedgerPanel({ active }: LedgerPanelProps) {
             onChange={(event) => setDraft((f) => ({ ...f, category: event.target.value }))}
           />
         </label>
+        <label className="ledger-check">
+          <input
+            type="checkbox"
+            checked={draft.showVoided}
+            onChange={(event) => {
+              const next = { ...draft, showVoided: event.target.checked };
+              setDraft(next);
+              applyFilters(next);
+            }}
+          />
+          Show voided
+        </label>
         <button type="submit" className="ghost" disabled={busy}>
           Apply
         </button>
       </form>
 
       <div className="table-wrap">
-        <Table columns={columns} rows={rows} emptyMessage="Nothing recorded yet." voided={(row) => row.is_voided} />
+        <Table
+          columns={columns}
+          rows={shown}
+          emptyMessage="Nothing recorded yet."
+          voided={(row) => row.is_voided}
+        />
       </div>
 
       <div className="ledger-footer">
         <p className="muted">
-          Showing {rows.length} of {totalCount}
+          {applied.showVoided
+            ? `Showing ${shown.length} of ${totalCount}`
+            : `Showing ${shown.length}`}
         </p>
         {nextCursor ? (
           <button type="button" className="ghost" disabled={busy} onClick={() => void loadMore()}>

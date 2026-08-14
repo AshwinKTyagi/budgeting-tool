@@ -292,6 +292,20 @@ tr.voided td:last-child { text-decoration: none; }
   margin-top: 0.25rem;
 }
 
+.ledger-filters input[type="checkbox"] {
+  width: auto;
+  min-width: 0;
+  margin: 0 0.4rem 0 0;
+  padding: 0;
+}
+
+.ledger-filters .ledger-check {
+  flex-direction: row;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+}
+
 .ledger-filters button.ghost {
   width: auto;
   background: none;
