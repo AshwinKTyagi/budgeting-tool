@@ -114,13 +114,12 @@ export function AccountPage() {
         ))}
       </nav>
 
-      <h2>Accounts</h2>
       <div className="table-wrap">
         <Table
           columns={columns}
           rows={rows}
           emptyMessage="No accounts yet. Add one below to get started."
-        />
+          />
       </div>
 
       <div
@@ -128,7 +127,8 @@ export function AccountPage() {
         id="account-panel-create"
         aria-labelledby="account-tab-create"
         hidden={tab !== "create"}
-      >
+        >
+        <h2>Add an account</h2>
         <div className="grid full">
           <FormShell
             onSubmit={async (fields) => {
@@ -180,7 +180,6 @@ export function AccountPage() {
           >
             {({ errors, busy }) => (
               <>
-                <h2>Add an account</h2>
                 <p className="hint">
                   Checking, savings, and cards all live here. The id is how you&apos;ll
                   refer to this account everywhere else — short and lowercase works best.
@@ -289,6 +288,7 @@ export function AccountPage() {
         aria-labelledby="account-tab-balance"
         hidden={tab !== "balance"}
       >
+        <h2>Set an opening balance</h2>
         <div className="grid full">
           <FormShell
             onSubmit={async (fields) => {
@@ -312,7 +312,7 @@ export function AccountPage() {
           >
             {({ errors, busy }) => (
               <>
-                <h2>Set an opening balance</h2>
+                
                 <p className="hint">
                   The starting point the ledger counts from. One per account — everything
                   after this is an event.
