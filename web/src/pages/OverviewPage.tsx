@@ -13,6 +13,7 @@ import { Chart } from "../components/Chart";
 import { HistoryPanel } from "../components/HistoryPanel";
 import { LedgerPanel } from "../components/LedgerPanel";
 import { Table, type Column } from "../components/Table";
+import { WarningsList } from "../components/WarningsList";
 
 const TABS = [
   { id: "summary", label: "Summary" },
@@ -167,20 +168,7 @@ export function OverviewPage() {
           />
         </div>
 
-        {warnings.length > 0 ? (
-          <div className="warnings">
-            <h3>
-              {warnings.length} thing{warnings.length === 1 ? "" : "s"} worth knowing
-            </h3>
-            <ul>
-              {warnings.map((w) => (
-                <li key={`${w.code}:${w.message}`}>
-                  {w.message} <code>{w.code}</code>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+        <WarningsList warnings={warnings} accounts={balances} obligations={obligations} />
 
         <h2>Discretionary by period</h2>
         <Chart series={series} format={format} />

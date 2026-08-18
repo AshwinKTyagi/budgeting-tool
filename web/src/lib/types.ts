@@ -44,6 +44,9 @@ export type PeriodState = {
 export type Warning = {
   code: string;
   message: string;
+  period_id?: string | null;
+  event_id?: string | null;
+  account_id?: string | null;
 };
 
 export type ProjectedState = {

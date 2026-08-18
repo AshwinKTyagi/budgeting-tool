@@ -386,17 +386,27 @@ tr.voided td:last-child { text-decoration: none; }
 /* ---------------------------------------------------------------- warnings */
 
 .warnings {
-  background: var(--notice-bg);
-  border-left: 3px solid var(--notice);
-  border-radius: 0 var(--radius) var(--radius) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
   margin-top: 1.75rem;
+}
+
+.warnings h3 { font-size: 0.85rem; margin: 0; }
+.warnings h4 { font-size: 0.75rem; margin: 0 0 0.4rem; color: var(--muted); font-weight: 600; }
+.warnings ul { margin: 0; padding-left: 1.1rem; }
+.warnings li { font-size: 0.82rem; margin-bottom: 0.25rem; }
+.warnings li:last-child { margin-bottom: 0; }
+
+.warnings-group {
+  border-left: 3px solid;
+  border-radius: 0 var(--radius) var(--radius) 0;
   padding: 0.85rem 1rem;
 }
 
-.warnings h3 { font-size: 0.85rem; margin: 0 0 0.5rem; }
-.warnings ul { margin: 0; padding-left: 1.1rem; }
-.warnings li { font-size: 0.82rem; margin-bottom: 0.25rem; }
-.warnings code { font-family: var(--mono); font-size: 0.85em; opacity: 0.75; }
+.warnings-group.info { background: var(--ok-bg); border-color: var(--ok); }
+.warnings-group.warning { background: var(--notice-bg); border-color: var(--notice); }
+.warnings-group.error { background: var(--danger-bg); border-color: var(--danger); }
 
 /* ------------------------------------------------------------------- chart */
 
