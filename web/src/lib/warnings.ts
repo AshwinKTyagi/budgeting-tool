@@ -90,8 +90,14 @@ function obligationLabel(obligationId: string, context: WarningContext | undefin
   return payee ?? "this bill";
 }
 
+/** Cents → display dollars. `1000` → `$10.00`; negatives as `-$10.00`. */
+function dollars(minor: number): string {
+  const formatted = fromMinor(minor);
+  return formatted.startsWith("-") ? `-$${formatted.slice(1)}` : `$${formatted}`;
+}
+
 function absMinor(minor: number): string {
-  return fromMinor(minor < 0 ? -minor : minor);
+  return dollars(minor < 0 ? -minor : minor);
 }
 
 function periodFromCycleId(cycleId: string): string | null {
@@ -121,7 +127,7 @@ export function formatWarning(
       return {
         tone,
         text:
-          `Estimated interest of ${fromMinor(parseMinor(match[2]))} on ` +
+          `Estimated interest of ${dollars(parseMinor(match[2]))} on ` +
           `${accountLabel(warning, context)} for ${when}. ` +
           `Not in the balance until you record the bank's figure.`,
       };
@@ -142,7 +148,7 @@ export function formatWarning(
       if (match === null) return fallback(warning);
       return {
         tone,
-        text: `You paid ${obligationLabel(match[1], context)} ${fromMinor(parseMinor(match[2]))} more than was due.`,
+        text: `You paid ${obligationLabel(match[1], context)} ${dollars(parseMinor(match[2]))} more than was due.`,
       };
     }
     case "OBLIGATION_PAST_DUE_UNPAID": {
@@ -152,7 +158,7 @@ export function formatWarning(
       const subject = who === "this bill" ? "This bill" : who;
       return {
         tone,
-        text: `${subject} was due ${match[2]} with ${fromMinor(parseMinor(match[3]))} still unpaid.`,
+        text: `${subject} was due ${match[2]} with ${dollars(parseMinor(match[3]))} still unpaid.`,
       };
     }
     case "PAYMENT_WITHOUT_OBLIGATION": {
@@ -160,7 +166,7 @@ export function formatWarning(
       if (match === null) return fallback(warning);
       return {
         tone,
-        text: `A payment of ${fromMinor(parseMinor(match[1]))} does not match any bill.`,
+        text: `A payment of ${dollars(parseMinor(match[1]))} does not match any bill.`,
       };
     }
     case "SAVINGS_DRAW_EXCEEDS_BALANCE": {
@@ -169,8 +175,8 @@ export function formatWarning(
       return {
         tone,
         text:
-          `A savings withdrawal of ${fromMinor(parseMinor(match[1]))} was more than the ` +
-          `${fromMinor(parseMinor(match[2]))} available on ${match[3]}.`,
+          `A savings withdrawal of ${dollars(parseMinor(match[1]))} was more than the ` +
+          `${dollars(parseMinor(match[2]))} available on ${match[3]}.`,
       };
     }
     case "CHECKING_OVERDRAWN": {

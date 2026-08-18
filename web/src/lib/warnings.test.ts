@@ -30,7 +30,7 @@ describe("formatWarning", () => {
     ).toEqual({
       tone: "info",
       text:
-        "Estimated interest of 3.95 on Savings for August 2026. " +
+        "Estimated interest of $3.95 on Savings for August 2026. " +
         "Not in the balance until you record the bank's figure.",
     });
   });
@@ -60,7 +60,7 @@ describe("formatWarning", () => {
       ),
     ).toEqual({
       tone: "warning",
-      text: "You paid Rent 12.00 more than was due.",
+      text: "You paid Rent $12.00 more than was due.",
     });
   });
 
@@ -76,7 +76,7 @@ describe("formatWarning", () => {
       ),
     ).toEqual({
       tone: "error",
-      text: "Rent was due 2026-08-01 with 500.00 still unpaid.",
+      text: "Rent was due 2026-08-01 with $500.00 still unpaid.",
     });
   });
 
@@ -90,7 +90,7 @@ describe("formatWarning", () => {
       }),
     ).toEqual({
       tone: "warning",
-      text: "A payment of 50.00 does not match any bill.",
+      text: "A payment of $50.00 does not match any bill.",
     });
   });
 
@@ -105,7 +105,7 @@ describe("formatWarning", () => {
       }),
     ).toEqual({
       tone: "warning",
-      text: "A savings withdrawal of 200.00 was more than the 50.00 available on 2026-08-03.",
+      text: "A savings withdrawal of $200.00 was more than the $50.00 available on 2026-08-03.",
     });
   });
 
@@ -121,7 +121,7 @@ describe("formatWarning", () => {
       ),
     ).toEqual({
       tone: "error",
-      text: "Everyday is overdrawn by 40.00.",
+      text: "Everyday is overdrawn by $40.00.",
     });
   });
 
@@ -157,7 +157,7 @@ describe("formatWarning", () => {
     ).toEqual({
       tone: "info",
       text:
-        "Estimated interest of 3.95 on Savings for August 2026. " +
+        "Estimated interest of $3.95 on Savings for August 2026. " +
         "Not in the balance until you record the bank's figure.",
     });
     expect(
@@ -167,7 +167,7 @@ describe("formatWarning", () => {
       }),
     ).toEqual({
       tone: "warning",
-      text: "You paid this bill 12.00 more than was due.",
+      text: "You paid this bill $12.00 more than was due.",
     });
     expect(
       formatWarning({
@@ -176,7 +176,7 @@ describe("formatWarning", () => {
       }),
     ).toEqual({
       tone: "error",
-      text: "Checking is overdrawn by 40.00.",
+      text: "Checking is overdrawn by $40.00.",
     });
   });
 });

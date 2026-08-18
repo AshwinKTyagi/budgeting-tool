@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { optional } from "../lib/constants";
 import { isAlterableType, isLiveRow, type CanonicalEvent } from "../lib/events";
-import { ledgerQuery } from "../lib/ledgerQuery";
 import { fromMinor, minorField } from "../lib/money";
 import { replaceEvent } from "../lib/replaceEvent";
 import type { LedgerPage, LedgerRow, Obligation } from "../lib/types";
