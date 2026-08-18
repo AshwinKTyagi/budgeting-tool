@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, postEvent } from "../lib/api";
 import { optional, today } from "../lib/constants";
-import { fromMinor, minorField } from "../lib/money";
+import { FieldError, fromMinor, minorField } from "../lib/money";
 import type { Obligation, ProjectedState } from "../lib/types";
 import {
   flashFromUnknown,
@@ -18,6 +18,7 @@ const TABS = [
   { id: "income", label: "Income" },
   { id: "expense", label: "Expense" },
   { id: "payment", label: "Pay a bill" },
+  { id: "transfer", label: "Transfer" },
   { id: "alter", label: "Alter" },
 ] as const;
 
@@ -37,6 +38,8 @@ export function RecordPage() {
   const [expenseAccountId, setExpenseAccountId] = useState("");
   const [incomeAccountId, setIncomeAccountId] = useState("");
   const [paymentAccountId, setPaymentAccountId] = useState("");
+  const [fromAccountId, setFromAccountId] = useState("");
+  const [toAccountId, setToAccountId] = useState("");
   const [obligationId, setObligationId] = useState("");
   const [paymentAmount, setPaymentAmount] = useState("");
 
@@ -60,13 +63,25 @@ export function RecordPage() {
       setExpenseAccountId("");
       setIncomeAccountId("");
       setPaymentAccountId("");
+      setFromAccountId("");
+      setToAccountId("");
       return;
     }
     const first = accounts[0].entity_id;
+    const second = accounts.length > 1 ? accounts[1].entity_id : first;
     if (!accounts.some((a) => a.entity_id === expenseAccountId)) setExpenseAccountId(first);
     if (!accounts.some((a) => a.entity_id === incomeAccountId)) setIncomeAccountId(first);
     if (!accounts.some((a) => a.entity_id === paymentAccountId)) setPaymentAccountId(first);
-  }, [accounts, expenseAccountId, incomeAccountId, paymentAccountId]);
+    if (!accounts.some((a) => a.entity_id === fromAccountId)) setFromAccountId(first);
+    if (!accounts.some((a) => a.entity_id === toAccountId)) setToAccountId(second);
+  }, [
+    accounts,
+    expenseAccountId,
+    incomeAccountId,
+    paymentAccountId,
+    fromAccountId,
+    toAccountId,
+  ]);
 
   const unpaid = obligations.filter((o) => o.status !== "PAID");
 
@@ -382,6 +397,102 @@ export function RecordPage() {
                 />
                 <button type="submit" disabled={busy}>
                   Record payment
+                </button>
+              </>
+            )}
+          </FormShell>
+        </div>
+      </div>
+
+      <div
+        role="tabpanel"
+        id="record-panel-transfer"
+        aria-labelledby="record-tab-transfer"
+        hidden={tab !== "transfer"}
+      >
+        <div className="grid full">
+          <FormShell
+            onSubmit={async (fields) => {
+              if (fields.from_account_id === fields.to_account_id) {
+                throw new FieldError(
+                  "from_account_id",
+                  "from and to must differ",
+                );
+              }
+              const result = await postEvent({
+                event_type: "TransferMade",
+                date: fields.date,
+                amount_minor: minorField(fields, "amount_minor"),
+                from_account_id: fields.from_account_id,
+                to_account_id: fields.to_account_id,
+                note: optional(fields.note),
+              });
+              reportAppend(showFlash, result, "Transfer recorded.");
+              refreshAll();
+            }}
+          >
+            {({ errors, busy }) => (
+              <>
+                <h2>Transfer</h2>
+                <p className="hint">
+                  Moves money between your own accounts. This does not reduce
+                  discretionary — paying a card bill is a transfer, not an expense.
+                </p>
+                <Field
+                  label="Date"
+                  name="date"
+                  type="date"
+                  required
+                  defaultValue={today()}
+                  error={errors.date}
+                />
+                <Field
+                  label="Amount"
+                  name="amount_minor"
+                  inputMode="decimal"
+                  required
+                  placeholder="500.00"
+                  error={errors.amount_minor}
+                />
+                <label>
+                  From
+                  <AccountSelect
+                    name="from_account_id"
+                    value={fromAccountId}
+                    onChange={setFromAccountId}
+                    accounts={accounts}
+                    required
+                    error={Boolean(errors.from_account_id)}
+                  />
+                  <small className={`err${errors.from_account_id ? " show" : ""}`}>
+                    {errors.from_account_id ?? ""}
+                  </small>
+                </label>
+                <label>
+                  To
+                  <AccountSelect
+                    name="to_account_id"
+                    value={toAccountId}
+                    onChange={setToAccountId}
+                    accounts={accounts}
+                    required
+                    error={Boolean(errors.to_account_id)}
+                  />
+                  <small className={`err${errors.to_account_id ? " show" : ""}`}>
+                    {errors.to_account_id ?? ""}
+                  </small>
+                </label>
+                <Field
+                  label={
+                    <>
+                      Note <span className="opt">optional</span>
+                    </>
+                  }
+                  name="note"
+                  error={errors.note}
+                />
+                <button type="submit" disabled={busy}>
+                  Record transfer
                 </button>
               </>
             )}
