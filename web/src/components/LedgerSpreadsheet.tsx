@@ -22,8 +22,21 @@ type LedgerSpreadsheetProps = {
   emptyMessage: string;
 };
 
+/**
+ * Rows the spreadsheet may edit in place.
+ *
+ * "expected" rows are included alongside "manual": a confirmed occurrence is a real,
+ * user-authored event that happens to have been accepted rather than typed, and a
+ * figure the projection proposed is exactly the kind you later want to correct.
+ * "receipt" and "external" stay read-only — their amounts came from a document or a
+ * provider, and editing them would put the ledger at odds with its source.
+ */
 function canEdit(row: LedgerRow): boolean {
-  return row.origin === "manual" && isLiveRow(row) && isAlterableType(row.event_type);
+  return (
+    (row.origin === "manual" || row.origin === "expected") &&
+    isLiveRow(row) &&
+    isAlterableType(row.event_type)
+  );
 }
 
 function displayAmount(row: LedgerRow, draft: CellDraft | undefined): string {

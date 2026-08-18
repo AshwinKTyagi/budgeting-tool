@@ -150,6 +150,7 @@ class IncomeReceived(EventBase):
     amount_minor: Minor            # > 0
     source: str
     account_id: str                # where it landed
+    recurring_id: str | None = None  # the RecurringIncome that forecast it (§8.5)
 
 
 class GiftReceived(EventBase):
@@ -277,7 +278,11 @@ class DefinitionBase(BaseModel):
 
 class RecurringIncome(DefinitionBase):
     """FORECAST ONLY. Never contributes to allocatable_income — only actual
-    IncomeReceived / GiftReceived events do (PLAN.md §8.2)."""
+    IncomeReceived / GiftReceived events do (PLAN.md §8.2).
+
+    `expand_recurring_incomes` is the "separate forecast view" §8.2 names. It
+    materializes occurrences for confirmation; confirming appends a real
+    IncomeReceived, and THAT is what allocates (PLAN.md §8.5)."""
     name: str
     amount_minor: Minor            # > 0
     cadence: Cadence
@@ -546,8 +551,19 @@ existing `event_id`.** It is not an error and must not be reported as one.
 | `GET` | `/accounts` | `as_of` | `AccountListResponse` |
 | `GET` | `/definitions/{kind}` | `as_of`, `include_history` | `DefinitionListResponse` |
 | `POST` | `/definitions/{kind}` | `NewDefinitionVersionRequest` | `201` |
+| `GET` | `/suggestions` | `as_of` | `SuggestionListResponse` |
+| `POST` | `/suggestions/{suggestion_id}/confirm` | `SuggestionConfirmRequest` (body optional) | `201` `AppendEventResponse` |
+| `POST` | `/suggestions/{suggestion_id}/reject` | `SuggestionRejectRequest` (body optional) | `201` `SuggestionRejectResponse` |
 
 `kind` ∈ `recurring-income | fixed-cost | allocation-policy | account`.
+
+**The `/suggestions` trio** serves the confirmation inbox (PLAN.md §8.5): forecast
+occurrences — expected obligations, estimated statement interest, and forecast paychecks
+— whose date has passed. A suggestion is derived, never stored, and is offered iff no
+event carries its `suggestion_id` as a `dedupe_key`. Confirming appends the real event;
+rejecting appends it noted as rejected and voids it. Both retire the occurrence
+permanently. An id that no longer resolves is `UNKNOWN_EVENT` (404) — it may already have
+been dealt with. Nothing dated after `as_of` is ever offered.
 
 **`GET /events/{event_id}`** returns the stored canonical `Event` (the same discriminated union as ingest). `UNKNOWN_EVENT` (404) if missing; a malformed id is `VALIDATION_FAILED` (422).
 
@@ -569,7 +585,7 @@ class LedgerRow(BaseModel):
     is_voided: bool
     voided_by_event_id: UUID | None
     note: str | None
-    origin: Literal["manual", "receipt", "external"]  # from dedupe_key prefix
+    origin: Literal["manual", "receipt", "external", "expected"]  # from dedupe_key prefix
 
 class LedgerPageResponse(BaseModel):
     rows: tuple[LedgerRow, ...]
@@ -1001,6 +1017,50 @@ def expand_fixed_costs(
         every row has source == EXPECTED
         obligation_id is deterministic: f"expected:{entity_id}:{period_id}"
         due_date is clamp_day_to_month(period, due_day)
+        no I/O, no clock
+    """
+    raise NotImplementedError
+
+
+class ExpectedIncome(BaseModel):
+    """One forecast paycheck, before api/ offers it for confirmation (§8.5).
+
+    Exists for the same reason as ExpectedObligation: domain/definitions.py must not
+    import domain/projection.py. `income_id` doubles as the dedupe_key of the event a
+    confirmation appends."""
+    income_id: str                 # f"expected:income:{entity_id}:{date}"
+    entity_id: str
+    date: dt.date
+    amount_minor: Minor
+    name: str
+    account_id: str
+
+
+def expand_recurring_incomes(
+    recurring_incomes: Sequence[RecurringIncome],
+    from_date: dt.date,
+    to_date: dt.date,
+) -> Sequence[ExpectedIncome]:
+    """Materialize forecast paychecks in [from_date, to_date], inclusive both ends.
+
+    The forecast view PLAN.md §8.2 promises. Does NOT make recurring income
+    allocatable: nothing in domain/projection.py calls this.
+
+    Preconditions:
+        `recurring_incomes` is the full version history
+
+    Postconditions:
+        each version is expanded only inside its own [effective_from, effective_to),
+            which resolves the version at the OCCURRENCE date -- a cadence change
+            cannot rewrite a paycheck that already landed
+        cadence is honoured: WEEKLY/BIWEEKLY step 7/14 days from effective_from and
+            ignore anchor_day; MONTHLY/QUARTERLY/ANNUAL step 1/3/12 months onto
+            clamp_day_to_month(anchor_day); SEMIMONTHLY pays on anchor_day and again
+            15 days later, capped at day 31
+        income_id is deterministic and unique -- a semimonthly job whose two dates
+            clamp onto the same day yields ONE occurrence
+        sorted by (date, income_id); independent of input order
+        an inverted window yields (), matching periods_between
         no I/O, no clock
     """
     raise NotImplementedError

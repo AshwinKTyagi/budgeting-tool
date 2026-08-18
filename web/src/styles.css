@@ -419,3 +419,83 @@ tr.voided td:last-child { text-decoration: none; }
 }
 
 .chart svg { display: block; }
+
+/* ------------------------------------------------- suggestions (PLAN.md §8.5) */
+/* Forecast occurrences awaiting confirmation. Rendered above everything else on
+   Overview, and not rendered at all when the list is empty — a banner that is always
+   there is a banner nobody reads. */
+
+.suggestions {
+  background: var(--notice-bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--notice);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.suggestions-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.suggestions-header h2 { margin: 0; font-size: 1rem; }
+
+.suggestions .hint { margin: 0.4rem 0 0.8rem; }
+
+.badge.count {
+  border-color: var(--notice);
+  color: var(--notice);
+  margin-left: 0.4rem;
+}
+
+.badge.income   { border-color: var(--ok);     color: var(--ok); }
+.badge.bill     { border-color: var(--notice); color: var(--notice); }
+.badge.interest { border-color: var(--spent);  color: var(--spent); }
+
+.suggestion-list { list-style: none; margin: 0; padding: 0; }
+
+.suggestion {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.88rem;
+}
+
+.suggestion-date { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+.suggestion-what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestion-amount { font-family: var(--mono); }
+
+.suggestion-input {
+  width: 8rem;
+  margin: 0;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.82rem;
+}
+
+.suggestion-actions { display: flex; gap: 0.3rem; }
+
+.suggestion-actions button {
+  padding: 0.2rem 0.55rem;
+  font-size: 0.82rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.suggestion-actions button:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.suggestion-actions button:disabled { opacity: 0.5; }
+
+@media (max-width: 620px) {
+  .suggestion { grid-template-columns: auto 1fr auto; }
+  .suggestion-date { grid-column: 1 / -1; }
+}

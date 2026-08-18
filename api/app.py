@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from sqlalchemy import Engine
 
 from api.errors import install_exception_handlers
-from api.routers import definitions, ingestion, read
+from api.routers import definitions, ingestion, read, suggestions
 from persistence.engine import configure_engine
 
 #: The base path, stated once. No router declares a prefix of its own.
@@ -49,4 +49,5 @@ def create_app(*, engine: Engine | None = None) -> FastAPI:
     app.include_router(ingestion.router, prefix=API_V1_PREFIX)
     app.include_router(read.router, prefix=API_V1_PREFIX)
     app.include_router(definitions.router, prefix=API_V1_PREFIX)
+    app.include_router(suggestions.router, prefix=API_V1_PREFIX)
     return app

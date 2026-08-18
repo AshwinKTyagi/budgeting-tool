@@ -87,6 +87,10 @@ class LedgerOrigin(StrEnum):
     MANUAL = "manual"
     RECEIPT = "receipt"
     EXTERNAL = "external"
+    #: Appended by confirming a forecast occurrence (PLAN.md §8.5). Still a real,
+    #: user-authored event -- the origin records that the user accepted a figure the
+    #: projection proposed rather than typed one in.
+    EXPECTED = "expected"
 
 
 class LedgerRow(BaseModel):
@@ -360,3 +364,95 @@ class NewDefinitionVersionResponse(BaseModel):
     effective_from: dt.date
     effective_to: dt.date | None
     closed_previous_version_id: UUID | None
+
+
+# ------------------------------------------------------------------------- §8.5
+# Forecast occurrences awaiting confirmation. A suggestion is DERIVED, never stored:
+# it is offered iff no event carries its `dedupe_key`, so confirming, editing, and
+# rejecting each suppress it permanently through the events table's UNIQUE index.
+#
+# `suggestion_id` IS that dedupe key. It is deterministic, so two clients confirming
+# the same occurrence race to one row rather than producing two.
+
+
+class SuggestionKind(StrEnum):
+    INCOME = "income"  # RecurringIncome -> IncomeReceived
+    BILL = "bill"  # FixedCost's expected obligation -> ObligationRaised
+    INTEREST = "interest"  # an estimated statement cycle -> InterestCharged
+
+
+class Suggestion(BaseModel):
+    """One forecast occurrence whose date has passed, offered for confirmation.
+
+    Flat rather than a union per kind: the banner renders one row shape, and the
+    fields a kind does not use are None. `event_type` names what confirming appends,
+    so a client can label the row without knowing the kind mapping.
+    """
+
+    model_config = MONEY_MODEL_CONFIG
+
+    suggestion_id: str
+    kind: SuggestionKind
+    event_type: str
+    entity_id: str
+    date: dt.date
+    amount_minor: Minor
+    description: str
+    account_id: str | None
+    counterparty: str | None  # payee, for a bill
+    category: str | None
+
+
+class SuggestionListResponse(BaseModel):
+    model_config = MONEY_MODEL_CONFIG
+
+    as_of_date: dt.date
+    suggestions: tuple[Suggestion, ...]
+
+
+class SuggestionConfirmRequest(BaseModel):
+    """Optional edits applied before the event is appended.
+
+    Every field is optional and only the ones supplied are applied, so confirming
+    unedited is an empty body. `dedupe_key` is never overridable — editing an
+    occurrence must not turn it into a second occurrence, which is exactly what
+    changing the key would do.
+    """
+
+    model_config = MONEY_MODEL_CONFIG
+
+    amount_minor: Minor | None = None
+    date: dt.date | None = None
+    account_id: str | None = None
+    counterparty: str | None = None  # source for income, payee for a bill
+    category: str | None = None
+    note: str | None = None
+    client_nonce: str | None = None
+
+
+class SuggestionRejectRequest(BaseModel):
+    """`POST /suggestions/{id}/reject`. Records that the occurrence did not happen.
+
+    `reason` defaults rather than being required: the common case is a paycheck that
+    simply did not arrive, and forcing prose for it would make rejecting slower than
+    confirming.
+    """
+
+    model_config = MONEY_MODEL_CONFIG
+
+    reason: str | None = None
+    client_nonce: str | None = None
+
+
+class SuggestionRejectResponse(BaseModel):
+    """Both ids a rejection produces.
+
+    A rejection is two appends — the occurrence, then the `EventVoided` that kills it —
+    so reporting only one of them would hide half of what happened.
+    """
+
+    model_config = MONEY_MODEL_CONFIG
+
+    event_id: UUID
+    voided_by_event_id: UUID
+    dedupe_key: str

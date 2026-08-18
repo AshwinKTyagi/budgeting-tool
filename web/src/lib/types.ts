@@ -56,7 +56,8 @@ export type ProjectedState = {
   warnings: Warning[];
 };
 
-export type LedgerOrigin = "manual" | "receipt" | "external";
+/** "expected" == appended by confirming a forecast occurrence (PLAN.md §8.5). */
+export type LedgerOrigin = "manual" | "receipt" | "external" | "expected";
 
 export type LedgerRow = {
   event_id: string;
@@ -98,6 +99,7 @@ export type FixedCostVersion = {
   payee: string;
   category: string;
   effective_from: string;
+  effective_to: string | null;
 };
 
 export type RecurringIncomeVersion = {
@@ -108,4 +110,31 @@ export type RecurringIncomeVersion = {
   anchor_day: number;
   account_id: string;
   effective_from: string;
+  effective_to: string | null;
+};
+
+/**
+ * A forecast occurrence whose date has passed, awaiting confirmation (PLAN.md §8.5).
+ *
+ * Derived, never stored: it is offered iff no event carries `suggestion_id` as its
+ * dedupe key, so confirming, editing, or rejecting retires it permanently.
+ */
+export type SuggestionKind = "income" | "bill" | "interest";
+
+export type Suggestion = {
+  suggestion_id: string;
+  kind: SuggestionKind;
+  event_type: string;
+  entity_id: string;
+  date: string;
+  amount_minor: number;
+  description: string;
+  account_id: string | null;
+  counterparty: string | null;
+  category: string | null;
+};
+
+export type SuggestionPage = {
+  as_of_date: string;
+  suggestions: Suggestion[];
 };

@@ -229,3 +229,40 @@ def clamp_day_to_month(year: int, month: int, day: int) -> dt.date:
         raise _reject("day out of range [1, 31]", day=day)
     last_day = _days_in_month(year, month)
     return dt.date(year, month, day if day < last_day else last_day)
+
+
+def add_months(year: int, month: int, count: int) -> tuple[int, int]:
+    """Step `count` months from (year, month). `count` may be negative or zero.
+
+    Preconditions:  1 <= month <= 12, year inside the dt.date range
+    Postconditions: add_months(2026, 11, 3) == (2027, 2)
+                    add_months(y, m, 0) == (y, m)
+                    the result is a valid (year, month) pair
+
+    Pure integer month arithmetic on `_month_index`, so nothing here builds a date and
+    nothing assumes a month length. This exists because cadence stepping -- a QUARTERLY
+    income landing every third month -- needs "add N months", and PLAN.md §4.1 keeps
+    every month assumption inside this module. Callers pair it with
+    `clamp_day_to_month` to turn the pair back into a date.
+
+    Raises:
+        AppError(VALIDATION_FAILED) for a malformed input pair, or when the result
+        falls outside the representable year range. Returning a clamped year would
+        silently collapse two different schedules onto one date.
+    """
+    if not _MIN_YEAR <= year <= _MAX_YEAR:
+        raise _reject(f"year out of range [{_MIN_YEAR}, {_MAX_YEAR}]", year=year)
+    if not 1 <= month <= _MONTHS_PER_YEAR:
+        raise _reject(f"month out of range [1, {_MONTHS_PER_YEAR}]", month=month)
+    index = _month_index(year, month) + count
+    result_year = index // _MONTHS_PER_YEAR
+    result_month = index % _MONTHS_PER_YEAR + 1
+    if not _MIN_YEAR <= result_year <= _MAX_YEAR:
+        raise _reject(
+            f"stepping {count} months from {year:04d}-{month:02d} leaves the "
+            f"representable year range [{_MIN_YEAR}, {_MAX_YEAR}]",
+            year=year,
+            month=month,
+            count=count,
+        )
+    return (result_year, result_month)

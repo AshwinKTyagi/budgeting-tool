@@ -223,6 +223,31 @@ class EventRepository:
         ).first()
         return None if row is None else row_to_event(row)
 
+    def list_dedupe_keys(self, prefix: str) -> frozenset[str]:
+        """Every stored `dedupe_key` starting with `prefix`.
+
+        Backs the suggestion suppression rule (PLAN.md §8.5): an occurrence is offered
+        iff no event carries its key. One query rather than a lookup per suggestion,
+        and keys rather than events because nothing about the row matters except that
+        it exists.
+
+        **Voided rows count.** A rejected occurrence is an appended event plus an
+        `EventVoided`, and the appended row keeps its key — which is exactly what stops
+        a rejection from being re-offered on the next read. Filtering voids out here
+        would make rejecting a no-op.
+
+        `prefix` is escaped: the keys are built from user-supplied `entity_id`s, and an
+        unescaped `%` or `_` would silently widen the match.
+        """
+        escaped = prefix.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        return frozenset(
+            self._session.scalars(
+                select(EventRow.dedupe_key).where(
+                    EventRow.dedupe_key.like(f"{escaped}%", escape="!")
+                )
+            )
+        )
+
     def exists(self, event_id: UUID) -> bool:
         """Whether `event_id` names a stored event.
 

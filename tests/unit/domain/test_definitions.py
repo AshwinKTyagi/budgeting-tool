@@ -45,6 +45,7 @@ from core.types import (
     PeriodId,
 )
 from domain.definitions import (
+    expand_recurring_incomes,
     Account,
     AllocationPolicy,
     DefinitionBase,
@@ -177,6 +178,7 @@ def _recurring_income(
     effective_to: dt.date | None = None,
     amount_minor: int = 500_000,
     anchor_day: int = 15,
+    cadence: Cadence = Cadence.MONTHLY,
 ) -> RecurringIncome:
     return RecurringIncome(
         version_id=_uuid(version_id),
@@ -186,7 +188,7 @@ def _recurring_income(
         recorded_at=RECORDED_AT,
         name="Salary",
         amount_minor=amount_minor,
-        cadence=Cadence.MONTHLY,
+        cadence=cadence,
         anchor_day=anchor_day,
         account_id="checking",
     )
@@ -1000,3 +1002,227 @@ def test_property_policy_construction_is_exactly_the_10000_partition(
     with pytest.raises(AppError) as exc:
         _policy(savings_bps=savings_bps, discretionary_bps=10_001 - savings_bps)
     assert exc.value.code == ErrorCode.POLICY_BPS_NOT_10000
+
+
+# --- expand_recurring_incomes
+#
+# The forecast view PLAN.md §8.2 promises. Expanding does NOT allocate — that stays
+# true and `tests/unit/domain/test_projection.py` guards it. These tests are about the
+# schedule: which dates a definition names, and which version names them.
+
+_WINDOW_START = dt.date(2026, 1, 1)
+_WINDOW_END = dt.date(2026, 3, 31)
+
+
+def _dates(rows: object) -> list[dt.date]:
+    return [row.date for row in rows]  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    ("cadence", "expected"),
+    [
+        (Cadence.WEEKLY, 13),
+        (Cadence.BIWEEKLY, 7),
+        (Cadence.SEMIMONTHLY, 6),
+        (Cadence.MONTHLY, 3),
+        (Cadence.QUARTERLY, 1),
+        (Cadence.ANNUAL, 1),
+    ],
+)
+def test_expand_recurring_incomes_honours_every_cadence(
+    cadence: Cadence, expected: int
+) -> None:
+    """`expand_fixed_costs` ignores cadence and emits one row per calendar month. This
+    is the first expansion that does not, which is the whole point: a fortnightly
+    paycheck is not a monthly one."""
+    rows = expand_recurring_incomes(
+        (_recurring_income(cadence=cadence, anchor_day=1),), _WINDOW_START, _WINDOW_END
+    )
+
+    assert len(rows) == expected
+
+
+@pytest.mark.parametrize(
+    "cadence", [Cadence.WEEKLY, Cadence.BIWEEKLY, Cadence.SEMIMONTHLY]
+)
+def test_sub_monthly_cadences_land_more_than_once_in_a_month(
+    cadence: Cadence,
+) -> None:
+    """The case a period-shaped expansion cannot express at all, and the reason income
+    expands by date rather than by period."""
+    rows = expand_recurring_incomes(
+        (_recurring_income(cadence=cadence, anchor_day=1),),
+        dt.date(2026, 1, 1),
+        dt.date(2026, 1, 31),
+    )
+
+    assert len(rows) > 1
+    assert {row.date.month for row in rows} == {1}
+
+
+def test_weekly_steps_from_effective_from_and_ignores_anchor_day() -> None:
+    """`effective_from` is the first payday. There is no day-of-month that survives
+    stepping seven days at a time, so `anchor_day` is meaningless here."""
+    rows = expand_recurring_incomes(
+        (
+            _recurring_income(
+                cadence=Cadence.WEEKLY,
+                anchor_day=28,
+                effective_from=dt.date(2026, 1, 5),
+            ),
+        ),
+        _WINDOW_START,
+        dt.date(2026, 2, 2),
+    )
+
+    assert _dates(rows) == [
+        dt.date(2026, 1, 5),
+        dt.date(2026, 1, 12),
+        dt.date(2026, 1, 19),
+        dt.date(2026, 1, 26),
+        dt.date(2026, 2, 2),
+    ]
+
+
+def test_monthly_clamps_the_anchor_day_to_the_month() -> None:
+    """Same clamp `expand_fixed_costs` applies to `due_day` — paid on the 31st still
+    lands in February."""
+    rows = expand_recurring_incomes(
+        (_recurring_income(anchor_day=31),), _WINDOW_START, _WINDOW_END
+    )
+
+    assert _dates(rows) == [
+        dt.date(2026, 1, 31),
+        dt.date(2026, 2, 28),
+        dt.date(2026, 3, 31),
+    ]
+
+
+def test_semimonthly_pays_twice_a_month_fifteen_days_apart() -> None:
+    rows = expand_recurring_incomes(
+        (_recurring_income(cadence=Cadence.SEMIMONTHLY, anchor_day=5),),
+        _WINDOW_START,
+        dt.date(2026, 2, 28),
+    )
+
+    assert _dates(rows) == [
+        dt.date(2026, 1, 5),
+        dt.date(2026, 1, 20),
+        dt.date(2026, 2, 5),
+        dt.date(2026, 2, 20),
+    ]
+
+
+def test_semimonthly_with_a_late_anchor_does_not_ask_for_day_35() -> None:
+    """`clamp_day_to_month` RAISES above day 31, so a bare `anchor_day + 15` takes the
+    whole expansion down for any anchor past the 16th. The second date is capped, not
+    clamped after the fact."""
+    rows = expand_recurring_incomes(
+        (_recurring_income(cadence=Cadence.SEMIMONTHLY, anchor_day=20),),
+        _WINDOW_START,
+        dt.date(2026, 2, 28),
+    )
+
+    assert _dates(rows) == [
+        dt.date(2026, 1, 20),
+        dt.date(2026, 1, 31),
+        dt.date(2026, 2, 20),
+        dt.date(2026, 2, 28),
+    ]
+
+
+def test_semimonthly_collapsing_onto_one_date_yields_one_occurrence() -> None:
+    """Anchored on the 30th, February asks for the 30th and the 31st and clamps both to
+    the 28th. One date is one paycheck — a duplicate id would be offered twice."""
+    rows = expand_recurring_incomes(
+        (_recurring_income(cadence=Cadence.SEMIMONTHLY, anchor_day=30),),
+        dt.date(2026, 2, 1),
+        dt.date(2026, 2, 28),
+    )
+
+    assert _dates(rows) == [dt.date(2026, 2, 28)]
+    assert len({row.income_id for row in rows}) == 1
+
+
+def test_expand_recurring_incomes_stops_at_effective_to() -> None:
+    """Exclusive end, like every other definition range."""
+    rows = expand_recurring_incomes(
+        (
+            _recurring_income(
+                anchor_day=1, effective_to=dt.date(2026, 3, 1)
+            ),
+        ),
+        _WINDOW_START,
+        _WINDOW_END,
+    )
+
+    assert _dates(rows) == [dt.date(2026, 1, 1), dt.date(2026, 2, 1)]
+
+
+def test_a_later_version_does_not_rewrite_earlier_occurrences() -> None:
+    """A cadence change is a new version, and each version is expanded only inside its
+    own range. January keeps January's schedule and January's amount — which is what
+    makes changing a pay period safe once paychecks have already landed."""
+    rows = expand_recurring_incomes(
+        (
+            _recurring_income(
+                version_id=1,
+                anchor_day=1,
+                effective_to=dt.date(2026, 2, 15),
+                amount_minor=100_000,
+            ),
+            _recurring_income(
+                version_id=2,
+                cadence=Cadence.BIWEEKLY,
+                effective_from=dt.date(2026, 2, 15),
+                amount_minor=200_000,
+            ),
+        ),
+        _WINDOW_START,
+        dt.date(2026, 3, 15),
+    )
+
+    assert [(row.date, row.amount_minor) for row in rows] == [
+        (dt.date(2026, 1, 1), 100_000),
+        (dt.date(2026, 2, 1), 100_000),
+        (dt.date(2026, 2, 15), 200_000),
+        (dt.date(2026, 3, 1), 200_000),
+        (dt.date(2026, 3, 15), 200_000),
+    ]
+
+
+def test_expand_recurring_incomes_ids_are_deterministic() -> None:
+    rows = expand_recurring_incomes(
+        (_recurring_income(anchor_day=1),), _WINDOW_START, dt.date(2026, 1, 31)
+    )
+
+    assert [row.income_id for row in rows] == ["expected:income:salary:2026-01-01"]
+
+
+def test_expand_recurring_incomes_is_independent_of_input_order() -> None:
+    versions = [
+        _recurring_income(version_id=1, entity_id="salary", anchor_day=1),
+        _recurring_income(version_id=2, entity_id="stipend", anchor_day=20),
+    ]
+
+    forward = expand_recurring_incomes(tuple(versions), _WINDOW_START, _WINDOW_END)
+    backward = expand_recurring_incomes(
+        tuple(reversed(versions)), _WINDOW_START, _WINDOW_END
+    )
+
+    assert forward == backward
+
+
+def test_expand_recurring_incomes_is_empty_for_an_inverted_window() -> None:
+    """Empty rather than a raise, matching `periods_between`: callers fold over the
+    result, so empty composes where a raise forces a guard at every call site."""
+    assert (
+        expand_recurring_incomes(
+            (_recurring_income(),), _WINDOW_END, _WINDOW_START
+        )
+        == ()
+    )
+
+
+def test_expand_recurring_incomes_of_nothing_is_nothing() -> None:
+    assert expand_recurring_incomes((), _WINDOW_START, _WINDOW_END) == ()

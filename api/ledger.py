@@ -89,6 +89,8 @@ def _origin(dedupe_key: str) -> LedgerOrigin:
         return LedgerOrigin.RECEIPT
     if dedupe_key.startswith("ext:"):
         return LedgerOrigin.EXTERNAL
+    if dedupe_key.startswith("expected:"):
+        return LedgerOrigin.EXPECTED
     return LedgerOrigin.MANUAL
 
 

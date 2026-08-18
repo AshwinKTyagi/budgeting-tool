@@ -20,7 +20,12 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from core.periods import CalendarMonthResolver, PeriodResolver, clamp_day_to_month
+from core.periods import (
+    CalendarMonthResolver,
+    PeriodResolver,
+    add_months,
+    clamp_day_to_month,
+)
 from core.types import AppError, ErrorCode, PeriodId
 
 # ------------------------------------------------------------------ conformance
@@ -548,3 +553,51 @@ def test_two_resolvers_are_interchangeable() -> None:
     assert list(RESOLVER.periods_between(d, dt.date(2026, 9, 1))) == list(
         other.periods_between(d, dt.date(2026, 9, 1))
     )
+
+
+# ===================================================================== add_months
+
+
+def test_add_months_steps_within_a_year() -> None:
+    assert add_months(2026, 1, 3) == (2026, 4)
+    assert add_months(2026, 9, 2) == (2026, 11)
+
+
+def test_add_months_crosses_year_boundaries_in_both_directions() -> None:
+    """The boundary is the only arithmetic here that a naive `month + count` gets
+    wrong, and it is the one a QUARTERLY or ANNUAL cadence hits constantly."""
+    assert add_months(2026, 11, 3) == (2027, 2)
+    assert add_months(2026, 1, -1) == (2025, 12)
+    assert add_months(2026, 12, 12) == (2027, 12)
+    assert add_months(2026, 6, -18) == (2024, 12)
+
+
+def test_add_months_by_zero_is_identity() -> None:
+    for month in range(1, 13):
+        assert add_months(2026, month, 0) == (2026, month)
+
+
+def test_add_months_is_additive() -> None:
+    """Stepping twice equals stepping once by the sum — which is what lets an
+    occurrence be computed from its index alone rather than by iterating."""
+    for count in range(0, 40):
+        year, month = add_months(2026, 5, count)
+        assert add_months(year, month, 7) == add_months(2026, 5, count + 7)
+
+
+def test_add_months_rejects_a_malformed_pair() -> None:
+    with pytest.raises(AppError) as raised:
+        add_months(2026, 13, 1)
+    assert raised.value.code is ErrorCode.VALIDATION_FAILED
+
+    with pytest.raises(AppError) as raised:
+        add_months(2026, 0, 1)
+    assert raised.value.code is ErrorCode.VALIDATION_FAILED
+
+
+def test_add_months_refuses_to_leave_the_representable_range() -> None:
+    """Clamping the year would silently collapse two different schedules onto one
+    date, which is worse than refusing."""
+    with pytest.raises(AppError) as raised:
+        add_months(9999, 12, 1)
+    assert raised.value.code is ErrorCode.VALIDATION_FAILED

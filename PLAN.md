@@ -449,6 +449,13 @@ This is deliberately **asymmetric** with `FixedCost`, and the asymmetry is the p
 unpaid bill is still owed, so it should reserve money. An unreceived paycheck cannot be
 spent, so it must not.
 
+The "separate forecast view" is `expand_recurring_incomes` (§8.5). It is the only
+cadence-aware expansion in the codebase — `expand_fixed_costs` emits one row per
+calendar month regardless of cadence, because an obligation's period membership is what
+matters there, whereas a fortnightly paycheck genuinely lands twice in some months and
+three times in others. Nothing in `domain/projection.py` calls it, which is what keeps
+the rule above mechanically true rather than merely intended.
+
 ### 8.3 Version resolution
 
 All definitions carry `effective_from` (inclusive) and `effective_to` (exclusive,
@@ -479,6 +486,54 @@ over `events` minus voided targets*.
 Hard deletes are forbidden everywhere. See `CLAUDE.md` §4.
 
 ---
+
+### 8.5 Confirming forecast occurrences
+
+Three things in this system are forecasts, and none of them is a ledger row: an expected
+obligation expanded from a `FixedCost`, an estimated interest figure from a statement
+cycle, and a forecast paycheck from a `RecurringIncome`. Each is recomputed on every
+projection and none is ever written.
+
+`GET /suggestions` offers each occurrence whose date has passed. Confirming appends the
+real event it stands for; rejecting records that it did not happen. **Nothing runs on a
+timer and no read writes** — which is the same objection §8.1 raises against a scheduler,
+answered without giving up the convenience: the user still authors every row, but a
+paycheck is one click rather than a form.
+
+Nothing dated after `as_of_date` is ever offered. `project()` already refuses to count a
+future event, and offering a paycheck before it arrives would invite confirming money
+that does not exist — the error direction §8.2 exists to prevent.
+
+**The suppression rule.** An occurrence is offered **iff** no event carries its
+`suggestion_id` as a `dedupe_key`. Confirm, edit-then-confirm, and reject all append a
+row bearing that key, so each retires the occurrence permanently against the UNIQUE
+index that already exists on that column. There is no dismissal table and no new state.
+
+    expected:income:{entity_id}:{date}
+    expected:bill:{entity_id}:{period_id}
+    expected:interest:{cycle_id}
+
+The key is pinned regardless of what was edited. A corrected amount is the same paycheck,
+not a second one — if an edit moved the key, the occurrence would be offered again and be
+entered twice.
+
+Rejected alternative: a `suggestion_dismissals` table. Cleaner in that a rejected
+paycheck never enters the event stream at all, but it needs a migration and a second
+notion of "dealt with" alongside the dedupe key. Append-then-void reuses the machinery
+that exists, and the objection to it — that "voided" would then mean both "I corrected
+this" and "this never happened" — is answered by recording *why*: the event carries a
+note and the `EventVoided` a matching reason.
+
+Rejected alternative: materializing rows at definition-write time. That is §8.1's
+scheduler wearing a different hat, and it has the same defect — editing a definition then
+has to backfill or delete rows already written, which an append-only ledger cannot do.
+
+**Rejecting a bill is dismiss-only.** It retires the reminder and leaves the expected
+obligation reserving money exactly as before. This is not special-cased: a rejection
+voids the `ObligationRaised`, and `project()` filters voided events before
+`supersede_expected` runs, so the expected row survives untouched. Making rejection drop
+the reservation would hand the user a one-click way to inflate discretionary, which is
+precisely what §8.1 refuses to allow.
 
 ## 9. Design note: future bank/card aggregation
 
@@ -569,6 +624,8 @@ section.
 | Implied transfer posts at period close | Post proportionally per income event | One movement per period; backdating stays simple | 6.2 |
 | Projection expands `FixedCost` | Scheduler writes events; forecast-only | No clock-dependent writer; forgetting a bill must not inflate discretionary | 8.1 |
 | `RecurringIncome` forecast-only | Symmetric with `FixedCost` | An unreceived paycheck cannot be spent | 8.2 |
+| Forecasts confirmed by the user | Scheduler materializes them; auto-post on read | Every ledger row stays an explicit user action; no clock-dependent writer | 8.5 |
+| Reject == append-then-void | Dismissals table; `SuggestionRejected` event type | Reuses the dedupe-key index; no migration, and the note records why | 8.5 |
 | Statement-close balance | Average daily balance | ADB needs a daily balance series for an estimate that gets superseded anyway | 7.1 |
 | Interest estimated, actual supersedes | Computed-only; recorded-only | Computed-only drifts from statements; recorded-only cannot forecast | 7.3 |
 | `AT_PURCHASE` default | `AT_STATEMENT_PAYMENT` default | A bill spanning two months otherwise distorts one period | 6.4 |

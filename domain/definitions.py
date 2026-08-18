@@ -37,13 +37,13 @@ from __future__ import annotations
 
 import datetime as dt
 import itertools
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Self
 from uuid import UUID
 
 from pydantic import BaseModel, model_validator
 
-from core.periods import PeriodResolver, clamp_day_to_month
+from core.periods import PeriodResolver, add_months, clamp_day_to_month
 from core.types import (
     MONEY_MODEL_CONFIG,
     AccountKind,
@@ -99,7 +99,12 @@ class DefinitionBase(BaseModel):
 
 class RecurringIncome(DefinitionBase):
     """FORECAST ONLY. Never contributes to allocatable_income — only actual
-    IncomeReceived / GiftReceived events do (PLAN.md §8.2)."""
+    IncomeReceived / GiftReceived events do (PLAN.md §8.2).
+
+    `expand_recurring_incomes` below is the "separate forecast view" §8.2 names. It
+    materializes occurrences so `api/` can offer them for confirmation; confirming
+    appends a real `IncomeReceived`, and that is what allocates (PLAN.md §8.5).
+    Expanding, by itself, allocates nothing."""
 
     name: str
     amount_minor: Minor  # > 0
@@ -460,3 +465,169 @@ def supersede_expected(
             key=lambda o: (o.due_date, o.obligation_id),
         )
     )
+
+
+# --------------------------------------------------------------- recurring income
+# The "separate forecast view" PLAN.md §8.2 promises. Expanding a `RecurringIncome`
+# does NOT make it allocatable: §8.2's rule is unchanged, and `domain/projection.py`
+# never calls anything below. These rows are offered to the user for confirmation, and
+# confirming appends a real `IncomeReceived` — which is what allocates (PLAN.md §8.5).
+#
+# This is the first cadence-aware expansion in the codebase. `expand_fixed_costs`
+# ignores `cadence` entirely and emits one row per calendar month; that asymmetry is
+# deliberate and out of scope here.
+
+#: Cadences that step by a fixed number of days from the first occurrence. `anchor_day`
+#: is meaningless for these — a weekly payday is pinned by `effective_from`, and there
+#: is no "day of the month" that survives stepping seven days at a time.
+_CADENCE_STEP_DAYS: Mapping[Cadence, int] = {
+    Cadence.WEEKLY: 7,
+    Cadence.BIWEEKLY: 14,
+}
+
+#: Cadences that step whole months and land on `anchor_day`, clamped to month length.
+_CADENCE_STEP_MONTHS: Mapping[Cadence, int] = {
+    Cadence.MONTHLY: 1,
+    Cadence.QUARTERLY: 3,
+    Cadence.ANNUAL: 12,
+}
+
+#: Days between the two halves of a SEMIMONTHLY month — the 1st and the 16th, the 5th
+#: and the 20th, and so on.
+_SEMIMONTHLY_OFFSET = 15
+
+#: `clamp_day_to_month` raises above this, so the second semimonthly date is capped
+#: here rather than allowed to reach `anchor_day + 15`. An `anchor_day` of 20 would
+#: otherwise ask for day 35 and take down the whole expansion.
+_LAST_POSSIBLE_DAY = 31
+
+_ONE_DAY = dt.timedelta(days=1)
+
+
+class ExpectedIncome(BaseModel):
+    """One forecast paycheck, before `api/` offers it for confirmation.
+
+    Exists for the same reason as `ExpectedObligation`: `domain/definitions.py` must
+    not import `domain/projection.py`, and this type keeps the dependency graph acyclic.
+
+    `income_id` doubles as the `dedupe_key` of the event a confirmation appends, which
+    is what makes confirming, editing, and rejecting each suppress the occurrence
+    permanently — the events table already holds a UNIQUE index on that column
+    (PLAN.md §8.5).
+    """
+
+    model_config = MONEY_MODEL_CONFIG
+
+    income_id: str  # f"expected:income:{entity_id}:{date}"
+    entity_id: str
+    date: dt.date
+    amount_minor: Minor
+    name: str
+    account_id: str
+
+
+def _occurrence_date(income: RecurringIncome, step: int) -> dt.date:
+    """The `step`-th occurrence of `income`, counting from zero.
+
+    Postconditions:
+        non-decreasing in `step`, for every cadence -- which is what lets the caller
+            stop at the first date past its window instead of generating all of them
+        always a valid date inside the month the cadence selects
+
+    Month-stepping cadences seed from the month of `effective_from` rather than from
+    `effective_from` itself, so a job effective the 20th with `anchor_day=1` still lands
+    on the 1st. The seeded occurrence may therefore precede `effective_from`; the caller
+    drops it.
+    """
+    start = income.effective_from
+    step_days = _CADENCE_STEP_DAYS.get(income.cadence)
+    if step_days is not None:
+        return start + dt.timedelta(days=step_days * step)
+    if income.cadence is Cadence.SEMIMONTHLY:
+        year, month = add_months(start.year, start.month, step // 2)
+        day = (
+            income.anchor_day
+            if step % 2 == 0
+            else min(income.anchor_day + _SEMIMONTHLY_OFFSET, _LAST_POSSIBLE_DAY)
+        )
+        return clamp_day_to_month(year, month, day)
+    year, month = add_months(
+        start.year, start.month, _CADENCE_STEP_MONTHS[income.cadence] * step
+    )
+    return clamp_day_to_month(year, month, income.anchor_day)
+
+
+def _version_occurrences(
+    income: RecurringIncome,
+    from_date: dt.date,
+    to_date: dt.date,
+) -> Sequence[ExpectedIncome]:
+    """Every occurrence of one version, inside both its own range and the window.
+
+    A version is expanded only within its own half-open `[effective_from,
+    effective_to)`. Because versions of one entity may not overlap, that is what
+    resolves the version at the OCCURRENCE date rather than at a period start — a
+    cadence change mid-month cannot rewrite a paycheck that already landed.
+    """
+    last = (
+        to_date
+        if income.effective_to is None
+        else min(to_date, income.effective_to - _ONE_DAY)
+    )
+    if last < income.effective_from:
+        return ()
+    # An upper bound on the step count, never the count itself: no cadence yields more
+    # than one occurrence per day, so the window's length always over-counts. It exists
+    # to keep the generator finite; `takewhile` is what actually stops it.
+    cap = (last - income.effective_from).days + 2
+    dates = (_occurrence_date(income, step) for step in range(cap))
+    return tuple(
+        ExpectedIncome(
+            income_id=f"expected:income:{income.entity_id}:{occurrence.isoformat()}",
+            entity_id=income.entity_id,
+            date=occurrence,
+            amount_minor=income.amount_minor,
+            name=income.name,
+            account_id=income.account_id,
+        )
+        for occurrence in itertools.takewhile(lambda d: d <= last, dates)
+        if occurrence >= income.effective_from and occurrence >= from_date
+    )
+
+
+def expand_recurring_incomes(
+    recurring_incomes: Sequence[RecurringIncome],
+    from_date: dt.date,
+    to_date: dt.date,
+) -> Sequence[ExpectedIncome]:
+    """Materialize forecast paychecks in `[from_date, to_date]`, inclusive both ends.
+
+    Preconditions:
+        `recurring_incomes` is the full version history, as the projection holds it
+
+    Postconditions:
+        every row's date is inside [from_date, to_date] and inside its own version's
+            [effective_from, effective_to)
+        income_id is deterministic: f"expected:income:{entity_id}:{date}"
+        no two rows share an income_id
+        sorted by (date, income_id); independent of the order the input arrived in
+        no I/O, no clock
+
+    This does **not** make recurring income allocatable. PLAN.md §8.2 stands: only an
+    actual `IncomeReceived` counts, and nothing in `domain/projection.py` calls this.
+    The rows exist so `api/` can offer them for confirmation.
+
+    An inverted window yields nothing rather than raising, matching
+    `periods_between` — callers fold over the result, so empty composes where a raise
+    would force a guard at every call site.
+
+    Deduplication by `income_id` is not defensive: a SEMIMONTHLY job anchored on the
+    30th asks for the 30th and the 31st, and February clamps both to the 28th. One
+    occurrence, one id, one suggestion.
+    """
+    rows = {
+        row.income_id: row
+        for version in sorted(recurring_incomes, key=_version_sort_key)
+        for row in _version_occurrences(version, from_date, to_date)
+    }
+    return tuple(sorted(rows.values(), key=lambda row: (row.date, row.income_id)))

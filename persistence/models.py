@@ -272,7 +272,9 @@ def _definition_table_args(
 
 class RecurringIncomeRow(DefinitionVersionMixin, Base):
     """`domain.definitions.RecurringIncome`. FORECAST ONLY — no row here ever
-    contributes to `allocatable_income` (PLAN.md §8.2)."""
+    contributes to `allocatable_income` (PLAN.md §8.2). Its occurrences are offered for
+    confirmation, and it is the confirmed `IncomeReceived` in `events` that allocates
+    (PLAN.md §8.5)."""
 
     __tablename__ = "recurring_incomes"
 

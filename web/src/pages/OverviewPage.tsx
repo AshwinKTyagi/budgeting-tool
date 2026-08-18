@@ -12,6 +12,7 @@ import { flashFromUnknown, useBudget } from "../context/BudgetContext";
 import { Chart } from "../components/Chart";
 import { HistoryPanel } from "../components/HistoryPanel";
 import { LedgerPanel } from "../components/LedgerPanel";
+import { SuggestionsBanner } from "../components/SuggestionsBanner";
 import { Table, type Column } from "../components/Table";
 import { WarningsList } from "../components/WarningsList";
 
@@ -105,6 +106,8 @@ export function OverviewPage() {
 
   return (
     <section>
+      <SuggestionsBanner />
+
       <nav className="tabs full" role="tablist">
         {TABS.map((item) => (
           <button

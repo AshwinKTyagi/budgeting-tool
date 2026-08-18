@@ -27,6 +27,10 @@ export function RecurringPage() {
   const [fixedCosts, setFixedCosts] = useState<FixedCostVersion[]>([]);
   const [incomes, setIncomes] = useState<RecurringIncomeVersion[]>([]);
   const [incomeAccountId, setIncomeAccountId] = useState("");
+  // Drives which schedule fields make sense. WEEKLY and BIWEEKLY step a fixed number
+  // of days from the first payday, so there is no day-of-month to ask for.
+  const [incomeCadence, setIncomeCadence] = useState("MONTHLY");
+  const monthAligned = incomeCadence !== "WEEKLY" && incomeCadence !== "BIWEEKLY";
 
   useEffect(() => {
     let cancelled = false;
@@ -130,16 +134,18 @@ export function RecurringPage() {
                   name: fields.name,
                   amount_minor: minorField(fields, "amount_minor"),
                   cadence: fields.cadence,
-                  anchor_day: intField(fields, "anchor_day", 1, 31),
+                  // Unused by the day-stepping cadences, but the model still requires
+                  // a value in 1..31 — the schedule ignores it rather than the API.
+                  anchor_day: monthAligned ? intField(fields, "anchor_day", 1, 31) : 1,
                   account_id: fields.account_id,
                   effective_from: fields.effective_from,
-                  effective_to: null,
+                  effective_to: fields.effective_to?.trim() ? fields.effective_to : null,
                 },
                 close_previous_at: null,
               });
               showFlash(
                 "ok",
-                `"${fields.name}" added as a forecast. Record the actual deposits under Record → Income.`,
+                `"${fields.name}" saved. Each scheduled payday will appear on Overview for you to confirm.`,
               );
               refreshAll();
             }}
@@ -147,9 +153,12 @@ export function RecurringPage() {
             {({ errors, busy }) => (
               <>
                 <p className="note">
-                  Forecast only. This does <strong>not</strong> create allocatable income —
-                  only an actual income event does. Record your paychecks under{" "}
-                  <em>Record → Income</em> or the budget will show zero.
+                  Each scheduled payday appears on <em>Overview</em> once its date
+                  arrives, where you confirm, edit, or reject it. Confirming is what
+                  adds it to the ledger and to your allocatable income — a paycheck
+                  you have not confirmed is not money you can spend. One-off or
+                  irregular deposits still go under <em>Record → Income</em>; do not
+                  enter a scheduled payday there as well, or it will count twice.
                 </p>
                 <Field label="Id" name="entity_id" required placeholder="salary" error={errors.entity_id} />
                 <Field label="Name" name="name" required placeholder="Salary" error={errors.name} />
@@ -161,15 +170,32 @@ export function RecurringPage() {
                   placeholder="4,000.00"
                   error={errors.amount_minor}
                 />
-                <Field label="Cadence" name="cadence" as="select" defaultValue="MONTHLY" options={CADENCES} />
                 <Field
-                  label="Arrives on day"
-                  name="anchor_day"
-                  inputMode="numeric"
-                  required
-                  defaultValue="1"
-                  error={errors.anchor_day}
+                  label="Cadence"
+                  name="cadence"
+                  as="select"
+                  defaultValue="MONTHLY"
+                  options={CADENCES}
+                  onChange={(e) => setIncomeCadence(e.target.value)}
                 />
+                {monthAligned ? (
+                  <Field
+                    label="Arrives on day"
+                    name="anchor_day"
+                    inputMode="numeric"
+                    required
+                    defaultValue="1"
+                    error={errors.anchor_day}
+                    hint={
+                      <small className="hint">
+                        1–31, clamped to the length of the month.
+                        {incomeCadence === "SEMIMONTHLY"
+                          ? " Twice a month pays on this day and again 15 days later."
+                          : ""}
+                      </small>
+                    }
+                  />
+                ) : null}
                 <label>
                   Into account
                   <AccountSelect
@@ -184,12 +210,25 @@ export function RecurringPage() {
                   </small>
                 </label>
                 <Field
-                  label="Effective from"
+                  label={monthAligned ? "Effective from" : "First payday"}
                   name="effective_from"
                   type="date"
                   required
                   defaultValue={today()}
                   error={errors.effective_from}
+                  hint={
+                    <small className="hint">
+                      Paydays before this date are never offered. Backdate it only as
+                      far as you actually want to confirm.
+                    </small>
+                  }
+                />
+                <Field
+                  label="Effective to"
+                  name="effective_to"
+                  type="date"
+                  error={errors.effective_to}
+                  hint={<small className="hint">Leave empty for ongoing.</small>}
                 />
                 <button type="submit" disabled={busy}>
                   Add recurring income
@@ -224,7 +263,7 @@ export function RecurringPage() {
                   payee: fields.payee,
                   category: fields.category,
                   effective_from: fields.effective_from,
-                  effective_to: null,
+                  effective_to: fields.effective_to?.trim() ? fields.effective_to : null,
                 },
                 close_previous_at: null,
               });
@@ -273,6 +312,13 @@ export function RecurringPage() {
                   required
                   defaultValue={today()}
                   error={errors.effective_from}
+                />
+                <Field
+                  label="Effective to"
+                  name="effective_to"
+                  type="date"
+                  error={errors.effective_to}
+                  hint={<small className="hint">Leave empty for ongoing.</small>}
                 />
                 <button type="submit" disabled={busy}>
                   Add monthly expense

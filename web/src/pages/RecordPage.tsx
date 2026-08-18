@@ -139,8 +139,10 @@ export function RecordPage() {
               <>
                 <h2>Income</h2>
                 <p className="hint">
-                  A paycheck or anything else that arrived. <strong>This</strong> is what
-                  creates allocatable income.
+                  A one-off or irregular deposit that arrived. <strong>This</strong> is
+                  what creates allocatable income. A payday you set up under{" "}
+                  <em>Recurring</em> is offered on <em>Overview</em> instead — confirm
+                  it there rather than re-entering it here, or it will count twice.
                 </p>
                 <Field
                   label="Date"

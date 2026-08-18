@@ -505,19 +505,49 @@ def recurring_income(
     *,
     amount_minor: Minor = 450_000,
     version: int = 1,
+    cadence: Cadence = Cadence.MONTHLY,
+    anchor_day: int = 1,
+    effective_from: dt.date = EPOCH,
+    effective_to: dt.date | None = None,
 ) -> RecurringIncome:
-    """Forecast only. Never contributes to allocatable income (PLAN.md §8.2)."""
+    """A forecast paycheck.
+
+    Still never contributes to allocatable income (PLAN.md §8.2) — only an actual
+    `IncomeReceived` does, and confirming an occurrence is what appends one. What this
+    builder feeds is `expand_recurring_incomes`, the forecast view §8.2 promises.
+    """
     return RecurringIncome(
         version_id=uid(600_000 + version),
         entity_id=entity_id,
-        effective_from=EPOCH,
-        effective_to=None,
+        effective_from=effective_from,
+        effective_to=effective_to,
         recorded_at=RECORDED_AT,
         name=entity_id,
         amount_minor=amount_minor,
-        cadence=Cadence.MONTHLY,
-        anchor_day=1,
+        cadence=cadence,
+        anchor_day=anchor_day,
         account_id=CHECKING,
+    )
+
+
+@st.composite
+def recurring_incomes(draw: st.DrawFn) -> RecurringIncome:
+    """One `RecurringIncome` spanning every cadence and the awkward anchor days.
+
+    Biased at the anchors that break naive arithmetic: 29/30/31 exercise the month-end
+    clamp, and 17..31 are the ones whose semimonthly second date would ask
+    `clamp_day_to_month` for a day past 31 if it were not capped.
+    """
+    return recurring_income(
+        cadence=draw(st.sampled_from(tuple(Cadence))),
+        anchor_day=draw(
+            st.one_of(
+                st.integers(min_value=1, max_value=31),
+                st.sampled_from((1, 15, 16, 17, 20, 28, 29, 30, 31)),
+            )
+        ),
+        amount_minor=draw(st.integers(min_value=1, max_value=10_000_000)),
+        effective_from=draw(business_dates()),
     )
 
 

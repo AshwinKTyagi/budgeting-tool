@@ -423,6 +423,10 @@ def _income_pairs(
     `RecurringIncome` is forecast and never lands here (PLAN.md §8.2). The asymmetry with
     `FixedCost`, which *is* expanded, is the point: an unpaid bill is still owed, an
     unreceived paycheck cannot be spent.
+
+    `expand_recurring_incomes` exists and this function still does not call it. A
+    forecast paycheck reaches allocation only by being confirmed, which appends an
+    ordinary `IncomeReceived` that arrives here like any other (PLAN.md §8.5).
     """
     return tuple(
         (resolver.period_for(event.date), event.amount_minor)

@@ -56,12 +56,19 @@ class EventBase(BaseModel):
 
 
 class IncomeReceived(EventBase):
-    """External income. Contributes to allocatable_income."""
+    """External income. Contributes to allocatable_income.
+
+    `recurring_id` links a paycheck back to the `RecurringIncome` that forecast it,
+    exactly as it does on `ObligationRaised`. It is provenance only — allocation reads
+    the amount, not the link, and a manually entered paycheck carries None. Suppressing
+    a confirmed occurrence rides on `dedupe_key`, not on this field (PLAN.md §8.5).
+    """
 
     event_type: Literal["IncomeReceived"] = "IncomeReceived"
     amount_minor: Minor  # > 0
     source: str
     account_id: str  # where it landed
+    recurring_id: str | None = None
 
 
 class GiftReceived(EventBase):
